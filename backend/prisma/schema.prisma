@@ -1,0 +1,232 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  STUDENT
+  FACULTY
+  ADMIN
+}
+
+enum EventStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  REGISTRATION_CLOSED
+  ONGOING
+  COMPLETED
+  ATTENDANCE_VERIFIED
+  OD_GENERATED
+}
+
+enum RegistrationStatus {
+  PENDING
+  ACTIVE
+  WAITLISTED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  name          String
+  rollNumber    String?        @unique
+  department    String?
+  role          Role           @default(STUDENT)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  managedClubs  Club[]         @relation("ClubCreator")
+  clubMembers   ClubMember[]
+  organizedEvents Event[]       @relation("EventOrganizer")
+  registrations Registration[]
+  scansPerformed Attendance[]  @relation("VolunteerScans")
+  volunteers    Volunteer[]    @relation("VolunteerEvents")
+  assignedVolunteers Volunteer[] @relation("AssignedBy")
+  odLetters     ODLetter[]     @relation("StudentODs")
+  approvedODs   ODLetter[]     @relation("FacultyApprovals")
+  approvals     EventApproval[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+
+  @@index([email])
+}
+
+model Club {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  description String?
+  createdById String
+  createdBy   User         @relation("ClubCreator", fields: [createdById], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  members     ClubMember[]
+  events      Event[]
+}
+
+model ClubMember {
+  id        String   @id @default(uuid())
+  clubId    String
+  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("MEMBER")
+  createdAt DateTime @default(now())
+
+  @@unique([clubId, userId])
+}
+
+model Event {
+  id             String         @id @default(uuid())
+  title          String
+  description    String
+  date           DateTime
+  duration       Int            // in minutes
+  location       String
+  capacity       Int
+  remainingSeats Int
+  isPaid         Boolean        @default(false)
+  price          Decimal        @default(0.00) @db.Decimal(10, 2)
+  status         EventStatus    @default(DRAFT)
+  organizerId    String
+  organizer      User           @relation("EventOrganizer", fields: [organizerId], references: [id])
+  clubId         String
+  club           Club           @relation(fields: [clubId], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  approvals      EventApproval[]
+  registrations  Registration[]
+  volunteers     Volunteer[]
+  attendance     Attendance[]
+}
+
+model EventApproval {
+  id            String   @id @default(uuid())
+  eventId       String
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  coordinatorId String
+  coordinator   User     @relation(fields: [coordinatorId], references: [id])
+  approved      Boolean
+  comments      String?
+  timestamp     DateTime @default(now())
+}
+
+model Registration {
+  id          String             @id @default(uuid())
+  eventId     String
+  event       Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User               @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  qrToken     String             @unique
+  status      RegistrationStatus @default(PENDING)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  payment     Payment?
+  attendance  Attendance?
+  odLetter    ODLetter?
+
+  @@unique([eventId, studentId])
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  registrationId String        @unique
+  registration   Registration  @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  reference      String?       @unique
+  status         PaymentStatus @default(PENDING)
+  amount         Decimal       @db.Decimal(10, 2)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Attendance {
+  id             String       @id @default(uuid())
+  registrationId String       @unique
+  registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  eventId        String
+  event          Event        @relation(fields: [eventId], references: [id])
+  scannedAt      DateTime     @default(now())
+  volunteerId    String
+  volunteer      User         @relation("VolunteerScans", fields: [volunteerId], references: [id])
+  deviceId       String?
+  createdAt      DateTime     @default(now())
+}
+
+model Volunteer {
+  id           String   @id @default(uuid())
+  eventId      String
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation("VolunteerEvents", fields: [userId], references: [id], onDelete: Cascade)
+  assignedById String
+  assignedBy   User     @relation("AssignedBy", fields: [assignedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@unique([eventId, userId])
+}
+
+model ODLetter {
+  id                String       @id @default(uuid())
+  registrationId    String       @unique
+  registration      Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           User         @relation("StudentODs", fields: [studentId], references: [id], onDelete: Cascade)
+  eventId           String
+  facultyId         String
+  faculty           User         @relation("FacultyApprovals", fields: [facultyId], references: [id])
+  approvalTimestamp DateTime     @default(now())
+  filePath          String
+  verificationId    String       @unique
+  createdAt         DateTime     @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  timestamp  DateTime @default(now())
+}
+
+model RefreshToken {
+  id                 String   @id @default(uuid())
+  token              String   @unique
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt          DateTime
+  replacedByTokenId  String?
+  revoked            Boolean  @default(false)
+  createdAt          DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

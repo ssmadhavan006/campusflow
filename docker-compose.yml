@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: campusflow-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: campusflow_user
+      POSTGRES_PASSWORD: campusflow_secure_password
+      POSTGRES_DB: campusflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: campusflow-backend
+    restart: always
+    environment:
+      PORT: 5000
+      DATABASE_URL: postgresql://campusflow_user:campusflow_secure_password@postgres:5432/campusflow_db?schema=public
+      JWT_SECRET: super_secret_access_token_key_12345
+      JWT_REFRESH_SECRET: super_secret_refresh_token_key_12345
+      DISABLE_AUTO_OD_GENERATION: "false"
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - "5000:5000"
+    volumes:
+      - shared_uploads:/app/uploads
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: campusflow-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  shared_uploads:

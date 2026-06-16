@@ -1,0 +1,88 @@
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { ThemeModeProvider } from './context/ThemeModeContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ProtectedRoute } from './components/common/ProtectedRoute';
+import { Layout } from './components/common/Layout';
+
+import { Login } from './pages/auth/Login';
+import { Register } from './pages/auth/Register';
+import { Unauthorized } from './pages/Unauthorized';
+import { EventsList } from './pages/EventsList';
+import { Profile } from './pages/Profile';
+import { Clubs } from './pages/Clubs';
+
+import { StudentDashboard } from './pages/student/StudentDashboard';
+import { StudentRegistrations } from './pages/student/StudentRegistrations';
+import { StudentODs } from './pages/student/StudentODs';
+
+import { OrganizerDashboard } from './pages/organizer/OrganizerDashboard';
+import { CreateEvent } from './pages/organizer/CreateEvent';
+
+import { VolunteerScanner } from './pages/volunteer/VolunteerScanner';
+
+import { FacultyDashboard } from './pages/faculty/FacultyDashboard';
+
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+
+const RoleRedirect = () => {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  switch (user.role) {
+    case 'STUDENT': return <Navigate to="/student-dashboard" replace />;
+    case 'FACULTY': return <Navigate to="/faculty-dashboard" replace />;
+    case 'ADMIN': return <Navigate to="/admin-dashboard" replace />;
+    default: return <Navigate to="/events" replace />;
+  }
+};
+
+function App() {
+  return (
+    <ThemeModeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/unauthorized" element={<Unauthorized />} />
+
+            <Route element={<ProtectedRoute />}>
+              <Route path="/" element={<RoleRedirect />} />
+              
+              <Route element={<Layout><Outlet /></Layout>}>
+                <Route path="/events" element={<EventsList />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/clubs" element={<Clubs />} />
+
+                {/* Standard Student Routes */}
+                <Route element={<ProtectedRoute allowedRoles={['STUDENT', 'ADMIN']} />}>
+                  <Route path="/student-dashboard" element={<StudentDashboard />} />
+                  <Route path="/student-registrations" element={<StudentRegistrations />} />
+                  <Route path="/student-ods" element={<StudentODs />} />
+                </Route>
+
+                {/* Organizer Student Routes */}
+                <Route element={<ProtectedRoute allowedRoles={['STUDENT', 'ADMIN']} requireClubOrganizer />}>
+                  <Route path="/organizer-dashboard" element={<OrganizerDashboard />} />
+                  <Route path="/create-event" element={<CreateEvent />} />
+                  <Route path="/volunteer-scanner" element={<VolunteerScanner />} />
+                </Route>
+
+                <Route element={<ProtectedRoute allowedRoles={['FACULTY', 'ADMIN']} />}>
+                  <Route path="/faculty-dashboard" element={<FacultyDashboard />} />
+                </Route>
+
+                <Route element={<ProtectedRoute allowedRoles={['ADMIN']} />}>
+                  <Route path="/admin-dashboard" element={<AdminDashboard />} />
+                </Route>
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeModeProvider>
+  );
+}
+
+export default App;
