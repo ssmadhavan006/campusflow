@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import path from 'path';
+import { env } from './config/env';
 import { errorHandler } from './middleware/error.middleware';
 
 import authRoutes from './modules/auth/auth.router';
@@ -18,8 +20,10 @@ app.use(cors({
   origin: true,
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
+
+app.use('/uploads', express.static(path.resolve(env.UPLOAD_DIR)));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);

@@ -7,6 +7,8 @@ export const UpdateProfileSchema = z.object({
     name: z.string().min(2).optional(),
     rollNumber: z.string().optional(),
     department: z.string().optional(),
+    class: z.string().optional(),
+    section: z.string().optional(),
   }),
 });
 

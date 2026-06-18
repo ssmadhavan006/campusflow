@@ -4,7 +4,7 @@ import { logAudit } from '../../utils/audit';
 export class UsersService {
   static async updateProfile(
     userId: string,
-    data: Partial<{ name: string; rollNumber: string; department: string }>
+    data: Partial<{ name: string; rollNumber: string; department: string; class: string; section: string }>
   ) {
     const updated = await prisma.user.update({
       where: { id: userId },
@@ -15,6 +15,8 @@ export class UsersService {
         name: true,
         rollNumber: true,
         department: true,
+        class: true,
+        section: true,
         role: true,
         clubMembers: {
           select: {

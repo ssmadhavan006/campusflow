@@ -5,9 +5,11 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'STUDENT' | 'FACULTY' | 'ADMIN';
+  role: 'STUDENT' | 'FACULTY' | 'HOD' | 'ADMIN';
   rollNumber?: string;
   department?: string;
+  class?: string;
+  section?: string;
   clubMembers?: {
     clubId: string;
     role: string;
@@ -24,10 +26,12 @@ interface AuthContextType {
     name: string;
     rollNumber?: string;
     department?: string;
+    class?: string;
+    section?: string;
     role?: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
-  updateProfile: (data: { name?: string; rollNumber?: string; department?: string }) => Promise<void>;
+  updateProfile: (data: { name?: string; rollNumber?: string; department?: string; class?: string; section?: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -78,6 +82,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     name: string;
     rollNumber?: string;
     department?: string;
+    class?: string;
+    section?: string;
     role?: string;
   }) => {
     await api.post('/auth/register', {
@@ -86,6 +92,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: data.name,
       rollNumber: data.rollNumber,
       department: data.department,
+      class: data.class,
+      section: data.section,
       role: data.role,
     });
   };
@@ -101,7 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateProfile = async (data: { name?: string; rollNumber?: string; department?: string }) => {
+  const updateProfile = async (data: { name?: string; rollNumber?: string; department?: string; class?: string; section?: string }) => {
     const res = await api.put('/users/profile', data);
     setUser(res.data.data.user);
   };

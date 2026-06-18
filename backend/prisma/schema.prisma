@@ -10,6 +10,7 @@ generator client {
 enum Role {
   STUDENT
   FACULTY
+  HOD
   ADMIN
 }
 
@@ -65,6 +66,10 @@ model User {
   auditLogs     AuditLog[]
   notifications Notification[]
 
+  class         String?
+  section       String?
+  coHostedEvents EventCoHost[]
+
   @@index([email])
 }
 
@@ -109,6 +114,7 @@ model Event {
   organizer      User           @relation("EventOrganizer", fields: [organizerId], references: [id])
   clubId         String
   club           Club           @relation(fields: [clubId], references: [id])
+  poster         String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -116,6 +122,7 @@ model Event {
   registrations  Registration[]
   volunteers     Volunteer[]
   attendance     Attendance[]
+  coHosts        EventCoHost[]
 }
 
 model EventApproval {
@@ -163,7 +170,7 @@ model Attendance {
   registrationId String       @unique
   registration   Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   eventId        String
-  event          Event        @relation(fields: [eventId], references: [id])
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
   scannedAt      DateTime     @default(now())
   volunteerId    String
   volunteer      User         @relation("VolunteerScans", fields: [volunteerId], references: [id])
@@ -229,4 +236,15 @@ model Notification {
   message   String
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model EventCoHost {
+  id        String   @id @default(uuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
 }

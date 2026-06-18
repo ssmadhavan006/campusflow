@@ -31,16 +31,19 @@ async function main() {
     },
   });
 
-  const organizer = await prisma.user.upsert({
-    where: { email: 'organizer@campusflow.com' },
+  const hod = await prisma.user.upsert({
+    where: { email: 'hod@campusflow.com' },
     update: {},
     create: {
-      email: 'organizer@campusflow.com',
+      email: 'hod@campusflow.com',
       passwordHash,
-      name: 'John ClubLead',
-      role: Role.STUDENT,
+      name: 'Dr. Alan Turing',
+      department: 'Computer Science',
+      role: Role.HOD,
     },
   });
+
+
 
   const student = await prisma.user.upsert({
     where: { email: 'student@campusflow.com' },
@@ -51,6 +54,8 @@ async function main() {
       name: 'Alex Student',
       rollNumber: 'CS2026001',
       department: 'Computer Science',
+      class: 'III CSE',
+      section: 'A',
       role: Role.STUDENT,
     },
   });
@@ -63,55 +68,59 @@ async function main() {
       passwordHash,
       name: 'Sarah Scanner',
       role: Role.STUDENT,
+      class: 'III CSE',
+      section: 'B',
     },
   });
 
-  console.log('Users seeded:', { admin: admin.email, faculty: faculty.email, organizer: organizer.email, student: student.email, volunteer: volunteer.email });
+  console.log('Users seeded:', { admin: admin.email, hod: hod.email, faculty: faculty.email, student: student.email, volunteer: volunteer.email });
 
-  const codingClub = await prisma.club.upsert({
-    where: { name: 'Coding Club' },
+  const cseDept = await prisma.club.upsert({
+    where: { name: 'Department of CSE' },
     update: {},
     create: {
-      name: 'Coding Club',
-      description: 'The official programming and computer science club.',
-      createdById: faculty.id,
+      name: 'Department of CSE',
+      description: 'Official Department of Computer Science and Engineering.',
+      createdById: hod.id,
     },
   });
 
-  console.log('Clubs seeded:', codingClub.name);
+  console.log('Departments seeded:', cseDept.name);
 
-  // Add Faculty Coordinator as COORDINATOR
+  // Add Faculty as COORDINATOR
   await prisma.clubMember.upsert({
-    where: { clubId_userId: { clubId: codingClub.id, userId: faculty.id } },
+    where: { clubId_userId: { clubId: cseDept.id, userId: faculty.id } },
     update: {},
     create: {
-      clubId: codingClub.id,
+      clubId: cseDept.id,
       userId: faculty.id,
       role: 'COORDINATOR',
     },
   });
 
+  // Add Volunteer as MEMBER so they can scan CSE Department events
   await prisma.clubMember.upsert({
-    where: { clubId_userId: { clubId: codingClub.id, userId: organizer.id } },
+    where: { clubId_userId: { clubId: cseDept.id, userId: volunteer.id } },
     update: {},
     create: {
-      clubId: codingClub.id,
-      userId: organizer.id,
-      role: 'LEADER',
+      clubId: cseDept.id,
+      userId: volunteer.id,
+      role: 'MEMBER',
     },
   });
 
+  // Add Student as MEMBER so they belong to the CSE Department
   await prisma.clubMember.upsert({
-    where: { clubId_userId: { clubId: codingClub.id, userId: student.id } },
+    where: { clubId_userId: { clubId: cseDept.id, userId: student.id } },
     update: {},
     create: {
-      clubId: codingClub.id,
+      clubId: cseDept.id,
       userId: student.id,
       role: 'MEMBER',
     },
   });
 
-  console.log('Club members assigned.');
+  console.log('Department members assigned.');
   console.log('Seeding completed successfully!');
 }
 

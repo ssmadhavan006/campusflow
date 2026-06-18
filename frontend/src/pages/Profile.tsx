@@ -19,6 +19,8 @@ export const Profile: React.FC = () => {
   const [name, setName] = useState(user?.name || '');
   const [rollNumber, setRollNumber] = useState(user?.rollNumber || '');
   const [department, setDepartment] = useState(user?.department || '');
+  const [classVal, setClassVal] = useState(user?.class || '');
+  const [section, setSection] = useState(user?.section || '');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +37,8 @@ export const Profile: React.FC = () => {
         name,
         rollNumber: user?.role === 'STUDENT' ? rollNumber : undefined,
         department: department || undefined,
+        class: user?.role === 'STUDENT' ? classVal : undefined,
+        section: user?.role === 'STUDENT' ? section : undefined,
       });
       setSuccess('Profile details successfully updated!');
     } catch (err: any) {
@@ -115,17 +119,43 @@ export const Profile: React.FC = () => {
               </Grid>
 
               {user?.role === 'STUDENT' && (
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Student Roll Number"
-                    variant="outlined"
-                    required
-                    value={rollNumber}
-                    onChange={(e) => setRollNumber(e.target.value)}
-                    disabled={loading}
-                  />
-                </Grid>
+                <>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Student Roll Number"
+                      variant="outlined"
+                      required
+                      value={rollNumber}
+                      onChange={(e) => setRollNumber(e.target.value)}
+                      disabled={loading}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Class"
+                      variant="outlined"
+                      required
+                      value={classVal}
+                      onChange={(e) => setClassVal(e.target.value)}
+                      disabled={loading}
+                      placeholder="e.g. III Year"
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Section"
+                      variant="outlined"
+                      required
+                      value={section}
+                      onChange={(e) => setSection(e.target.value)}
+                      disabled={loading}
+                      placeholder="e.g. CSE-A"
+                    />
+                  </Grid>
+                </>
               )}
 
               <Grid item xs={12}>

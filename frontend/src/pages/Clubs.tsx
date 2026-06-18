@@ -131,15 +131,15 @@ export const Clubs: React.FC = () => {
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
-            Campus Clubs
+            Academic Departments
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Browse active clubs, check member lists, or create new organizing bodies.
+            Browse active departments, check member lists, or create new organizing bodies.
           </Typography>
         </Box>
-        {['ADMIN', 'FACULTY'].includes(user?.role || '') && (
+        {['ADMIN', 'HOD'].includes(user?.role || '') && (
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-            Create Club
+            Create Department
           </Button>
         )}
       </Box>
@@ -185,13 +185,13 @@ export const Clubs: React.FC = () => {
       )}
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>Create New Club</DialogTitle>
+        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>Create New Department</DialogTitle>
         <form onSubmit={handleCreateClub}>
           <DialogContent>
             {createError && <Alert severity="error" sx={{ mb: 2 }}>{createError}</Alert>}
             <TextField
               fullWidth
-              label="Club Name"
+              label="Department Name"
               margin="dense"
               required
               value={name}
@@ -222,7 +222,7 @@ export const Clubs: React.FC = () => {
 
       <Dialog open={membersOpen} onClose={() => setMembersOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
-          Club Directory - {selectedClub?.name}
+          Department Directory - {selectedClub?.name}
         </DialogTitle>
         <DialogContent>
           {(() => {

@@ -22,7 +22,6 @@ import {
   QrCode as QrIcon,
   Cancel as CancelIcon,
   Payment as PaymentIcon,
-  GetApp as DownloadIcon,
 } from '@mui/icons-material';
 
 interface Registration {
@@ -70,28 +69,6 @@ export const StudentRegistrations: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<'gpay' | 'bank'>('gpay');
 
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [downloading, setDownloading] = useState<string | null>(null);
-
-  const handleDownloadOD = async (verificationId: string) => {
-    setDownloading(verificationId);
-    try {
-      const res = await api.get(`/od/download/${verificationId}`, {
-        responseType: 'blob',
-      });
-
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `OD_Letter_${verificationId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
-    } catch (err) {
-      console.error('Failed to download OD letter', err);
-    } finally {
-      setDownloading(null);
-    }
-  };
 
   const fetchRegistrations = async () => {
     try {
@@ -221,17 +198,7 @@ export const StudentRegistrations: React.FC = () => {
                   </Box>
 
                   <Box display="flex" gap={1.5} flexWrap="wrap">
-                    {reg.odLetter && (
-                      <Button
-                        variant="contained"
-                        color="success"
-                        startIcon={<DownloadIcon />}
-                        onClick={() => handleDownloadOD(reg.odLetter!.verificationId)}
-                        disabled={downloading === reg.odLetter.verificationId}
-                      >
-                        {downloading === reg.odLetter.verificationId ? 'Downloading...' : 'Download OD'}
-                      </Button>
-                    )}
+
 
                     {reg.status === 'PENDING' && (
                       <Button

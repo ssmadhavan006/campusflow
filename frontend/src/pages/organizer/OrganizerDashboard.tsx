@@ -38,6 +38,8 @@ import {
   PersonAdd as VolunteerIcon,
   HourglassEmpty as WaitlistIcon,
   AttachMoney as MoneyIcon,
+  GetApp as DownloadIcon,
+  SupervisorAccount as CoHostIcon,
 } from '@mui/icons-material';
 
 interface Event {
@@ -64,6 +66,12 @@ export const OrganizerDashboard: React.FC = () => {
   const [attendanceOpen, setAttendanceOpen] = useState(false);
   const [volunteerOpen, setVolunteerOpen] = useState(false);
   const [volunteers, setVolunteers] = useState<any[]>([]);
+  const [coHostOpen, setCoHostOpen] = useState(false);
+  const [coHosts, setCoHosts] = useState<any[]>([]);
+  const [coHostEmail, setCoHostEmail] = useState('');
+  const [coHostError, setCoHostError] = useState<string | null>(null);
+  const [coHostSuccess, setCoHostSuccess] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   // Input states
   const [volunteerEmail, setVolunteerEmail] = useState('');
@@ -156,6 +164,58 @@ export const OrganizerDashboard: React.FC = () => {
       setVolunteers(eventDetail.data.data.event.volunteers || []);
     } catch (err: any) {
       setVolunteerError(err.response?.data?.message || err.message || 'Failed to assign volunteer.');
+    }
+  };
+
+  const handleOpenCoHosts = async (event: Event) => {
+    setActiveEvent(event);
+    setCoHostError(null);
+    setCoHostSuccess(null);
+    setCoHostEmail('');
+    try {
+      const res = await api.get(`/events/${event.id}`);
+      setCoHosts(res.data.data.event.coHosts || []);
+      setCoHostOpen(true);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAddCoHost = async () => {
+    if (!coHostEmail) return;
+    setCoHostError(null);
+    setCoHostSuccess(null);
+
+    try {
+      await api.post(`/events/${activeEvent!.id}/co-hosts`, { email: coHostEmail });
+      setCoHostSuccess('Co-Host successfully assigned.');
+      setCoHostEmail('');
+      const eventDetail = await api.get(`/events/${activeEvent!.id}`);
+      setCoHosts(eventDetail.data.data.event.coHosts || []);
+    } catch (err: any) {
+      setCoHostError(err.response?.data?.message || err.message || 'Failed to assign co-host.');
+    }
+  };
+
+  const handleDownloadConsolidatedOD = async (eventId: string) => {
+    setDownloading(eventId);
+    try {
+      const res = await api.get(`/od/event/${eventId}/consolidated`, {
+        responseType: 'blob',
+      });
+
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `consolidated_od_${eventId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (err: any) {
+      console.error('Failed to download consolidated OD letter', err);
+      window.alert('Failed to download consolidated OD letter. Please try again.');
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -422,6 +482,24 @@ export const OrganizerDashboard: React.FC = () => {
                           </Tooltip>
                         </>
                       )}
+
+                      <Tooltip title="Manage Co-Hosts">
+                        <IconButton color="info" onClick={() => handleOpenCoHosts(event)}>
+                          <CoHostIcon />
+                        </IconButton>
+                      </Tooltip>
+
+                      {event.status === 'OD_GENERATED' && (
+                        <Tooltip title="Download Consolidated OD">
+                          <IconButton
+                            color="secondary"
+                            onClick={() => handleDownloadConsolidatedOD(event.id)}
+                            disabled={downloading === event.id}
+                          >
+                            {downloading === event.id ? <CircularProgress size={20} /> : <DownloadIcon />}
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -556,6 +634,51 @@ export const OrganizerDashboard: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setVolunteerOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Co-Host Assignment Dialog */}
+      <Dialog open={coHostOpen} onClose={() => setCoHostOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
+          Manage Co-Hosts - {activeEvent?.title}
+        </DialogTitle>
+        <DialogContent>
+          <Box display="flex" gap={1} mb={3} mt={1}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Co-Host Email"
+              variant="outlined"
+              placeholder="e.g. faculty@campusflow.com"
+              value={coHostEmail}
+              onChange={(e) => setCoHostEmail(e.target.value)}
+            />
+            <Button variant="contained" onClick={handleAddCoHost}>
+              Assign
+            </Button>
+          </Box>
+
+          {coHostError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setCoHostError(null)}>{coHostError}</Alert>}
+          {coHostSuccess && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setCoHostSuccess(null)}>{coHostSuccess}</Alert>}
+
+          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+            Currently Assigned Co-Hosts
+          </Typography>
+          <Divider sx={{ mb: 1 }} />
+          {coHosts.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">No co-hosts assigned to this event.</Typography>
+          ) : (
+            <List>
+              {coHosts.map((ch) => (
+                <ListItem key={ch.id || ch.userId} disablePadding sx={{ py: 0.5 }}>
+                  <ListItemText primary={ch.user.name} secondary={ch.user.email} />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCoHostOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

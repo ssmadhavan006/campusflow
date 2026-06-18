@@ -11,10 +11,6 @@ import {
   Typography,
   Alert,
   CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   FormControlLabel,
   Checkbox,
 } from '@mui/material';
@@ -36,6 +32,22 @@ export const CreateEvent: React.FC = () => {
   const [isPaid, setIsPaid] = useState(false);
   const [price, setPrice] = useState(0.0);
   const [clubId, setClubId] = useState('');
+  const [poster, setPoster] = useState<string>('');
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Image size must be less than 5MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPoster(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     const fetchClubs = async () => {
@@ -70,6 +82,7 @@ export const CreateEvent: React.FC = () => {
         isPaid,
         price: isPaid ? Number(price) : 0,
         clubId,
+        poster: poster || undefined,
       };
 
       await api.post('/events', payload);
@@ -176,19 +189,48 @@ export const CreateEvent: React.FC = () => {
               </Grid>
             </Grid>
 
-            <FormControl fullWidth margin="normal" required>
-              <InputLabel>Organizing Club</InputLabel>
-              <Select
-                value={clubId}
-                label="Organizing Club"
-                onChange={(e) => setClubId(e.target.value)}
-                disabled={loading}
-              >
-                {clubs.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <TextField
+              fullWidth
+              label="Organizing Department"
+              margin="normal"
+              disabled
+              value={clubs.find((c) => c.id === clubId)?.name || 'Department of CSE'}
+            />
+
+            <Box mt={2} mb={2}>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                Event Poster (Optional)
+              </Typography>
+              <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
+                <Button
+                  variant="outlined"
+                  component="label"
+                  disabled={loading}
+                >
+                  Choose Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={handleFileChange}
+                  />
+                </Button>
+                {poster && (
+                  <Box
+                    component="img"
+                    src={poster}
+                    alt="Poster Preview"
+                    sx={{
+                      width: 100,
+                      height: 100,
+                      objectFit: 'cover',
+                      borderRadius: 2,
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                    }}
+                  />
+                )}
+              </Box>
+            </Box>
 
             <Box display="flex" alignItems="center" gap={2} mt={2}>
               <FormControlLabel

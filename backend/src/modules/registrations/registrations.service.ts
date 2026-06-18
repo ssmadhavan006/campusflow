@@ -196,8 +196,13 @@ export class RegistrationsService {
     });
     const isLeader = membership?.role === 'LEADER' || membership?.role === 'CO_LEADER';
 
+    const isCoHost = await prisma.eventCoHost.findUnique({
+      where: { eventId_userId: { eventId, userId } }
+    }) !== null;
+
     if (
       event.organizerId !== userId &&
+      !isCoHost &&
       !isCoordinator &&
       !isLeader &&
       role !== Role.ADMIN

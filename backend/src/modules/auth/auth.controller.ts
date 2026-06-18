@@ -9,7 +9,9 @@ export const RegisterSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
     rollNumber: z.string().optional(),
     department: z.string().optional(),
-    role: z.enum(['STUDENT', 'FACULTY', 'ADMIN']).optional(),
+    class: z.string().optional(),
+    section: z.string().optional(),
+    role: z.enum(['STUDENT', 'FACULTY', 'HOD', 'ADMIN']).optional(),
   }),
 });
 
@@ -33,13 +35,15 @@ const setRefreshTokenCookie = (res: Response, token: string) => {
 export class AuthController {
   static async register(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, password, name, rollNumber, department, role } = req.body;
+      const { email, password, name, rollNumber, department, role, class: classVal, section } = req.body;
       const user = await AuthService.register({
         email,
         passwordHash: password,
         name,
         rollNumber,
         department,
+        class: classVal,
+        section,
         role,
       });
 

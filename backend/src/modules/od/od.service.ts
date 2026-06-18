@@ -180,4 +180,83 @@ export class ODService {
       },
     });
   }
+
+  static async getConsolidatedODPDF(eventId: string, userId: string, role: Role): Promise<Buffer> {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      include: {
+        organizer: { select: { id: true, name: true } },
+        club: { select: { name: true, createdById: true } },
+        coHosts: { select: { userId: true } },
+        approvals: {
+          where: { approved: true },
+          orderBy: { timestamp: 'desc' },
+          take: 1,
+          include: { coordinator: { select: { name: true } } },
+        },
+      },
+    });
+
+    if (!event) throw new Error('Event not found.');
+
+    const isCoHost = event.coHosts.some((ch) => ch.userId === userId);
+    const isDeptCreator = event.club.createdById === userId;
+    if (
+      event.organizerId !== userId &&
+      !isCoHost &&
+      !isDeptCreator &&
+      role !== Role.HOD &&
+      role !== Role.ADMIN
+    ) {
+      throw new Error('Not authorized to download OD letters for this event.');
+    }
+
+    if (event.status !== EventStatus.OD_GENERATED) {
+      throw new Error('Consolidated OD letter is only available after HOD approval.');
+    }
+
+    // Fetch all checked in attendees
+    const attendees = await prisma.attendance.findMany({
+      where: { eventId },
+      include: {
+        registration: {
+          include: {
+            student: {
+              select: {
+                name: true,
+                rollNumber: true,
+                class: true,
+                section: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { registration: { student: { name: 'asc' } } },
+    });
+
+    const students = attendees.map((att) => ({
+      name: att.registration.student.name,
+      rollNumber: att.registration.student.rollNumber || 'N/A',
+      class: att.registration.student.class || 'N/A',
+      section: att.registration.student.section || 'N/A',
+    }));
+
+    const hodName = event.approvals[0]?.coordinator.name || 'Head of Department';
+    
+    // Import generateConsolidatedODPDFBuffer
+    const { generateConsolidatedODPDFBuffer } = require('../../utils/pdf');
+
+    const pdfBuffer = await generateConsolidatedODPDFBuffer({
+      eventName: event.title,
+      eventDate: event.date.toLocaleDateString(),
+      eventDuration: event.duration.toString(),
+      hostName: event.organizer.name,
+      hodName,
+      departmentName: event.club.name,
+      students,
+    });
+
+    return pdfBuffer;
+  }
 }

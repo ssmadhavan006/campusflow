@@ -95,33 +95,42 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     // All authenticated users can see events list
     links.push({ text: 'All Events', path: '/events', icon: <EventIcon /> });
 
+    // Student pages
     if (user?.role === 'STUDENT' || user?.role === 'ADMIN') {
       links.push(
         { text: 'Student Dashboard', path: '/student-dashboard', icon: <DashboardIcon /> },
         { text: 'My Registrations', path: '/student-registrations', icon: <EventIcon /> },
         { text: 'My OD Letters', path: '/student-ods', icon: <ODLetterIcon /> }
       );
-
-      const isClubOrganizer = user?.clubMembers && user.clubMembers.length > 0;
-      if (user?.role === 'ADMIN' || isClubOrganizer) {
-        links.push(
-          { text: 'Event Center', path: '/organizer-dashboard', icon: <DashboardIcon /> },
-          { text: 'Create Event', path: '/create-event', icon: <EventIcon /> },
-          { text: 'Scanner Dashboard', path: '/volunteer-scanner', icon: <ScannerIcon /> }
-        );
-      }
     }
 
-    if (user?.role === 'FACULTY' || user?.role === 'ADMIN') {
-      links.push({ text: 'Faculty Dashboard', path: '/faculty-dashboard', icon: <FacultyIcon /> });
+    // HOD pages (Approvals)
+    if (user?.role === 'HOD' || user?.role === 'ADMIN') {
+      links.push({ text: 'HOD Dashboard', path: '/faculty-dashboard', icon: <FacultyIcon /> });
+    }
+
+    // Faculty & HOD Event Creation and Event Center pages
+    if (user?.role === 'FACULTY' || user?.role === 'HOD' || user?.role === 'ADMIN') {
+      links.push(
+        { text: 'Event Center', path: '/organizer-dashboard', icon: <DashboardIcon /> },
+        { text: 'Create Event', path: '/create-event', icon: <EventIcon /> }
+      );
+    }
+
+    // Scanner Dashboard (Hosts, HODs, Admins, and Student Volunteers)
+    const isVolunteer = user?.clubMembers && user.clubMembers.length > 0;
+    const canScan = ['ADMIN', 'FACULTY', 'HOD'].includes(user?.role || '') || (user?.role === 'STUDENT' && isVolunteer);
+    if (canScan) {
+      links.push({ text: 'Scanner Dashboard', path: '/volunteer-scanner', icon: <ScannerIcon /> });
     }
 
     if (user?.role === 'ADMIN') {
       links.push({ text: 'Admin Dashboard', path: '/admin-dashboard', icon: <AdminIcon /> });
     }
 
-    if (user?.role === 'STUDENT' || user?.role === 'FACULTY' || user?.role === 'ADMIN') {
-      links.push({ text: 'Clubs', path: '/clubs', icon: <ClubIcon /> });
+    // Departments (represented by Club model)
+    if (user && user.role === 'ADMIN') {
+      links.push({ text: 'Departments', path: '/clubs', icon: <ClubIcon /> });
     }
 
     // Common Profile Link

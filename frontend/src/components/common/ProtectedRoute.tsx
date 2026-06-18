@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { CircularProgress, Box } from '@mui/material';
 
 interface ProtectedRouteProps {
-  allowedRoles?: ('STUDENT' | 'FACULTY' | 'ADMIN')[];
+  allowedRoles?: ('STUDENT' | 'FACULTY' | 'HOD' | 'ADMIN')[];
   requireClubOrganizer?: boolean;
 }
 
@@ -35,7 +35,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, re
 
   if (requireClubOrganizer) {
     const isClubOrganizer = user.clubMembers && user.clubMembers.length > 0;
-    if (user.role !== 'ADMIN' && !(user.role === 'STUDENT' && isClubOrganizer)) {
+    const isPrivileged = ['ADMIN', 'FACULTY', 'HOD'].includes(user.role);
+    if (!isPrivileged && !(user.role === 'STUDENT' && isClubOrganizer)) {
       return <Navigate to="/unauthorized" replace />;
     }
   }

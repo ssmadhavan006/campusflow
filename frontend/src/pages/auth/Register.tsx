@@ -29,7 +29,9 @@ export const Register: React.FC = () => {
   const [name, setName] = useState('');
   const [rollNumber, setRollNumber] = useState('');
   const [department, setDepartment] = useState('');
-  const [role, setRole] = useState<'STUDENT' | 'FACULTY'>('STUDENT');
+  const [className, setClassName] = useState('');
+  const [section, setSection] = useState('');
+  const [role, setRole] = useState<'STUDENT' | 'FACULTY' | 'HOD'>('STUDENT');
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -53,6 +55,8 @@ export const Register: React.FC = () => {
         name,
         rollNumber: role === 'STUDENT' ? rollNumber : undefined,
         department: department || undefined,
+        class: role === 'STUDENT' ? className : undefined,
+        section: role === 'STUDENT' ? section : undefined,
         role,
       });
 
@@ -131,21 +135,46 @@ export const Register: React.FC = () => {
                 disabled={loading}
               >
                 <MenuItem value="STUDENT">Student</MenuItem>
-                <MenuItem value="FACULTY">Faculty Coordinator</MenuItem>
+                <MenuItem value="FACULTY">Faculty</MenuItem>
+                <MenuItem value="HOD">Head of Department (HOD)</MenuItem>
               </Select>
             </FormControl>
 
             {role === 'STUDENT' && (
-              <TextField
-                fullWidth
-                label="Roll Number"
-                variant="outlined"
-                margin="dense"
-                required
-                value={rollNumber}
-                onChange={(e) => setRollNumber(e.target.value)}
-                disabled={loading}
-              />
+              <>
+                <TextField
+                  fullWidth
+                  label="Roll Number"
+                  variant="outlined"
+                  margin="dense"
+                  required
+                  value={rollNumber}
+                  onChange={(e) => setRollNumber(e.target.value)}
+                  disabled={loading}
+                />
+                <TextField
+                  fullWidth
+                  label="Class"
+                  variant="outlined"
+                  margin="dense"
+                  placeholder="e.g. III CSE"
+                  required
+                  value={className}
+                  onChange={(e) => setClassName(e.target.value)}
+                  disabled={loading}
+                />
+                <TextField
+                  fullWidth
+                  label="Section"
+                  variant="outlined"
+                  margin="dense"
+                  placeholder="e.g. A"
+                  required
+                  value={section}
+                  onChange={(e) => setSection(e.target.value)}
+                  disabled={loading}
+                />
+              </>
             )}
 
             <TextField

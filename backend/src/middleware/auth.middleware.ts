@@ -12,6 +12,10 @@ declare global {
         email: string;
         role: Role;
         name: string;
+        rollNumber?: string | null;
+        department?: string | null;
+        class?: string | null;
+        section?: string | null;
         clubMembers?: {
           clubId: string;
           role: string;
@@ -42,6 +46,10 @@ export const authenticate = async (
         email: true,
         role: true,
         name: true,
+        rollNumber: true,
+        department: true,
+        class: true,
+        section: true,
         clubMembers: {
           select: {
             clubId: true,

@@ -47,4 +47,20 @@ export class ODController {
       return res.status(400).json({ status: 'fail', message: error.message });
     }
   }
+
+  static async downloadConsolidated(req: Request, res: Response, next: NextFunction) {
+    try {
+      const pdfBuffer = await ODService.getConsolidatedODPDF(
+        req.params.eventId,
+        req.user!.id,
+        req.user!.role
+      );
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=consolidated_od_${req.params.eventId}.pdf`);
+      return res.send(pdfBuffer);
+    } catch (error: any) {
+      return res.status(403).json({ status: 'fail', message: error.message });
+    }
+  }
 }

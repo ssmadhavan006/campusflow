@@ -2,8 +2,21 @@ import { prisma } from '../../config/db';
 import { EventStatus, Role } from '@prisma/client';
 import { logAudit } from '../../utils/audit';
 import { validateStatusTransition } from './events.utils';
+import { storageService } from '../../utils/storage';
 
 export class EventsService {
+  static async savePosterBase64(base64Str: string): Promise<string> {
+    const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      throw new Error('Invalid poster image format.');
+    }
+    const fileType = matches[1];
+    const extension = fileType.split('/')[1] || 'png';
+    const buffer = Buffer.from(matches[2], 'base64');
+    const filename = `posters/poster_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${extension}`;
+    await storageService.saveFile(filename, buffer);
+    return filename;
+  }
   static async createEvent(data: {
     title: string;
     description: string;
@@ -15,22 +28,21 @@ export class EventsService {
     price: number;
     clubId: string;
     organizerId: string;
+    poster?: string;
   }) {
     const club = await prisma.club.findUnique({ where: { id: data.clubId } });
     if (!club) throw new Error('Club not found.');
 
-    // Fetch user to check role
     const user = await prisma.user.findUnique({ where: { id: data.organizerId } });
     if (!user) throw new Error('User not found.');
 
-    if (user.role !== Role.ADMIN && club.createdById !== data.organizerId) {
-      // Must be a LEADER or CO_LEADER in ClubMember
-      const membership = await prisma.clubMember.findUnique({
-        where: { clubId_userId: { clubId: data.clubId, userId: data.organizerId } },
-      });
-      if (!membership || (membership.role !== 'LEADER' && membership.role !== 'CO_LEADER')) {
-        throw new Error('Only club leaders or co-leaders can create events on behalf of the club.');
-      }
+    if (user.role !== Role.ADMIN && user.role !== Role.FACULTY && user.role !== Role.HOD) {
+      throw new Error('Only faculty coordinators, HODs, or admins can create events.');
+    }
+
+    let posterPath: string | null = null;
+    if (data.poster) {
+      posterPath = await this.savePosterBase64(data.poster);
     }
 
     const event = await prisma.event.create({
@@ -47,6 +59,7 @@ export class EventsService {
         status: EventStatus.DRAFT,
         clubId: data.clubId,
         organizerId: data.organizerId,
+        poster: posterPath,
       },
     });
 
@@ -68,14 +81,17 @@ export class EventsService {
       capacity: number;
       isPaid: boolean;
       price: number;
+      poster: string;
     }>
   ) {
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) throw new Error('Event not found.');
 
-    const club = await prisma.club.findUnique({ where: { id: event.clubId } });
-    const isCoordinator = club?.createdById === organizerId;
-    if (event.organizerId !== organizerId && role !== Role.ADMIN && !isCoordinator) {
+    const coHost = await prisma.eventCoHost.findUnique({
+      where: { eventId_userId: { eventId: id, userId: organizerId } },
+    });
+    const isCoHost = !!coHost;
+    if (event.organizerId !== organizerId && role !== Role.ADMIN && role !== Role.HOD && !isCoHost) {
       throw new Error('Not authorized to update this event.');
     }
 
@@ -92,11 +108,20 @@ export class EventsService {
       }
     }
 
+    let posterPath: string | undefined = undefined;
+    if (data.poster) {
+      posterPath = await this.savePosterBase64(data.poster);
+    }
+
+    // Extract poster from data to avoid passing base64 directly to prisma update
+    const { poster, ...prismaUpdateData } = data;
+
     const updatedEvent = await prisma.event.update({
       where: { id },
       data: {
-        ...data,
+        ...prismaUpdateData,
         remainingSeats,
+        ...(posterPath !== undefined ? { poster: posterPath } : {}),
       },
     });
 
@@ -109,9 +134,11 @@ export class EventsService {
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) throw new Error('Event not found.');
 
-    const club = await prisma.club.findUnique({ where: { id: event.clubId } });
-    const isCoordinator = club?.createdById === organizerId;
-    if (event.organizerId !== organizerId && !isCoordinator) {
+    const coHost = await prisma.eventCoHost.findUnique({
+      where: { eventId_userId: { eventId: id, userId: organizerId } },
+    });
+    const isCoHost = !!coHost;
+    if (event.organizerId !== organizerId && !isCoHost) {
       throw new Error('Not authorized to submit this event.');
     }
 
@@ -138,10 +165,9 @@ export class EventsService {
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) throw new Error('Event not found.');
 
-    const club = await prisma.club.findUnique({ where: { id: event.clubId } });
     const user = await prisma.user.findUnique({ where: { id: coordinatorId } });
-    if (club?.createdById !== coordinatorId && user?.role !== Role.ADMIN) {
-      throw new Error('Only the club faculty coordinator or admin can review this event.');
+    if (user?.role !== Role.HOD && user?.role !== Role.ADMIN) {
+      throw new Error('Only the HOD or admin can review this event.');
     }
 
     const nextStatus = approved ? EventStatus.APPROVED : EventStatus.REJECTED;
@@ -174,9 +200,11 @@ export class EventsService {
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) throw new Error('Event not found.');
 
-    const club = await prisma.club.findUnique({ where: { id: event.clubId } });
-    const isCoordinator = club?.createdById === userId;
-    if (event.organizerId !== userId && role !== Role.ADMIN && !isCoordinator) {
+    const coHost = await prisma.eventCoHost.findUnique({
+      where: { eventId_userId: { eventId: id, userId } },
+    });
+    const isCoHost = !!coHost;
+    if (event.organizerId !== userId && role !== Role.ADMIN && role !== Role.HOD && !isCoHost) {
       throw new Error('Not authorized to change status of this event.');
     }
 
@@ -210,7 +238,8 @@ export class EventsService {
     if (filters.onlyManage && filters.userId) {
       where.OR = [
         { organizerId: filters.userId },
-        { club: { createdById: filters.userId } }
+        { club: { createdById: filters.userId } },
+        { coHosts: { some: { userId: filters.userId } } }
       ];
       if (filters.status) {
         where.status = filters.status;
@@ -236,14 +265,16 @@ export class EventsService {
           where.status = filters.status;
           where.OR = [
             { organizerId: filters.userId },
-            { club: { createdById: filters.userId } }
+            { club: { createdById: filters.userId } },
+            { coHosts: { some: { userId: filters.userId } } }
           ];
         }
       } else {
         where.OR = [
           { status: { in: publicStatuses } },
           { organizerId: filters.userId },
-          { club: { createdById: filters.userId } }
+          { club: { createdById: filters.userId } },
+          { coHosts: { some: { userId: filters.userId } } }
         ];
       }
     }
@@ -282,6 +313,9 @@ export class EventsService {
         volunteers: {
           include: { user: { select: { id: true, name: true, email: true } } },
         },
+        coHosts: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
         _count: { select: { registrations: true, attendance: true } },
       },
     });
@@ -298,5 +332,46 @@ export class EventsService {
     }
 
     return event;
+  }
+
+  static async assignCoHost(eventId: string, email: string, userId: string, role: Role) {
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new Error('Event not found.');
+
+    if (event.organizerId !== userId && role !== Role.ADMIN && role !== Role.HOD) {
+      throw new Error('Only the event host, HOD, or admin can assign co-hosts.');
+    }
+
+    const coHostUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!coHostUser) {
+      throw new Error('User not found. Ensure they have registered an account.');
+    }
+
+    if (coHostUser.role !== Role.FACULTY && coHostUser.role !== Role.HOD) {
+      throw new Error('Only faculty members or HODs can be assigned as co-hosts.');
+    }
+
+    const coHost = await prisma.eventCoHost.create({
+      data: {
+        eventId,
+        userId: coHostUser.id,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    await logAudit(userId, 'EVENT_ASSIGN_COHOST', 'Event', eventId, { coHostId: coHostUser.id });
+
+    return coHost;
+  }
+
+  static async deleteEvent(id: string, adminId: string) {
+    const event = await prisma.event.findUnique({ where: { id } });
+    if (!event) throw new Error('Event not found.');
+
+    const deleted = await prisma.event.delete({ where: { id } });
+    await logAudit(adminId, 'EVENT_DELETE', 'Event', id, { title: event.title });
+    return deleted;
   }
 }

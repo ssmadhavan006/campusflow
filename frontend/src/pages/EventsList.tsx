@@ -12,10 +12,6 @@ import {
   Chip,
   Box,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   CircularProgress,
   Dialog,
   DialogTitle,
@@ -43,6 +39,7 @@ interface Event {
   status: string;
   club: { id: string; name: string };
   organizer: { id: string; name: string; email: string };
+  poster?: string;
 }
 
 interface Registration {
@@ -57,12 +54,10 @@ export const EventsList: React.FC = () => {
   const { mode } = useThemeMode();
   const [events, setEvents] = useState<Event[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
-  const [clubs, setClubs] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
   const [search, setSearch] = useState('');
-  const [selectedClub, setSelectedClub] = useState('');
 
   // Payment Dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -78,12 +73,8 @@ export const EventsList: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [eventsRes, clubsRes] = await Promise.all([
-        api.get('/events'),
-        api.get('/clubs'),
-      ]);
+      const eventsRes = await api.get('/events');
       setEvents(eventsRes.data.data.events);
-      setClubs(clubsRes.data.data.clubs);
 
       if (user?.role === 'STUDENT') {
         const regsRes = await api.get('/registrations/me');
@@ -142,14 +133,26 @@ export const EventsList: React.FC = () => {
     }
   };
 
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!window.confirm('Are you sure you want to permanently delete this event and all associated registrations?')) {
+      return;
+    }
+    setMessage(null);
+    try {
+      await api.delete(`/events/${eventId}`);
+      setMessage({ type: 'success', text: 'Event successfully deleted.' });
+      fetchData();
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.message || 'Failed to delete event.' });
+    }
+  };
+
   const isUserRegistered = (eventId: string) => {
     return registrations.find((r) => r.eventId === eventId && r.status !== 'CANCELLED');
   };
 
   const filteredEvents = events.filter((e) => {
-    const matchesSearch = e.title.toLowerCase().includes(search.toLowerCase()) || e.description.toLowerCase().includes(search.toLowerCase());
-    const matchesClub = selectedClub ? e.club.id === selectedClub : true;
-    return matchesSearch && matchesClub;
+    return e.title.toLowerCase().includes(search.toLowerCase()) || e.description.toLowerCase().includes(search.toLowerCase());
   });
 
   if (loading) {
@@ -171,19 +174,6 @@ export const EventsList: React.FC = () => {
           onChange={(e) => setSearch(e.target.value)}
           sx={{ flexGrow: 1, minWidth: 200 }}
         />
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Club</InputLabel>
-          <Select
-            value={selectedClub}
-            label="Club"
-            onChange={(e) => setSelectedClub(e.target.value)}
-          >
-            <MenuItem value="">All Clubs</MenuItem>
-            {clubs.map((c) => (
-              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
       </Box>
 
       {message && (
@@ -205,6 +195,35 @@ export const EventsList: React.FC = () => {
             return (
               <Grid item xs={12} sm={6} md={4} key={event.id}>
                 <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  {event.poster ? (
+                    <Box
+                      component="img"
+                      src={`/uploads/${event.poster}`}
+                      alt={event.title}
+                      sx={{
+                        width: '100%',
+                        height: 180,
+                        objectFit: 'cover',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                      }}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: 180,
+                        background: 'linear-gradient(135deg, #1e1b4b 0%, #311042 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                      }}
+                    >
+                      <Typography variant="subtitle1" color="text.secondary" sx={{ opacity: 0.5, fontWeight: 'bold' }}>
+                        Department of CSE Event
+                      </Typography>
+                    </Box>
+                  )}
                   <CardContent>
                     <Box display="flex" justifyContent="space-between" alignItems="start" mb={1.5}>
                       <Chip label={event.club.name} color="primary" size="small" variant="outlined" />
@@ -271,6 +290,18 @@ export const EventsList: React.FC = () => {
                     ) : (
                       <Button fullWidth variant="outlined" disabled>
                         Event Status: {event.status}
+                      </Button>
+                    )}
+
+                    {user?.role === 'ADMIN' && (
+                      <Button
+                        fullWidth
+                        variant="contained"
+                        color="error"
+                        onClick={() => handleDeleteEvent(event.id)}
+                        sx={{ mt: 1 }}
+                      >
+                        Delete Event
                       </Button>
                     )}
                   </CardActions>

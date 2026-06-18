@@ -3,7 +3,6 @@ import { api } from '../../services/api';
 import {
   Box,
   Typography,
-  Button,
   CircularProgress,
   Table,
   TableBody,
@@ -13,7 +12,6 @@ import {
   TableRow,
   Paper,
 } from '@mui/material';
-import { GetApp as DownloadIcon } from '@mui/icons-material';
 
 interface ODLetter {
   id: string;
@@ -31,7 +29,6 @@ interface ODLetter {
 export const StudentODs: React.FC = () => {
   const [ods, setOds] = useState<ODLetter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchODs = async () => {
@@ -47,27 +44,6 @@ export const StudentODs: React.FC = () => {
 
     fetchODs();
   }, []);
-
-  const handleDownload = async (verificationId: string) => {
-    setDownloading(verificationId);
-    try {
-      const res = await api.get(`/od/download/${verificationId}`, {
-        responseType: 'blob',
-      });
-
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `OD_Letter_${verificationId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
-    } catch (err) {
-      console.error('Failed to download OD letter', err);
-    } finally {
-      setDownloading(null);
-    }
-  };
 
   if (loading) {
     return (
@@ -102,7 +78,6 @@ export const StudentODs: React.FC = () => {
                 <TableCell sx={{ fontWeight: 'bold' }}>Duration</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>Verification ID</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>Approval Date</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', textAlign: 'right' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -117,18 +92,6 @@ export const StudentODs: React.FC = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>{new Date(od.approvalTimestamp).toLocaleString()}</TableCell>
-                  <TableCell sx={{ textAlign: 'right' }}>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      size="small"
-                      startIcon={<DownloadIcon />}
-                      onClick={() => handleDownload(od.verificationId)}
-                      disabled={downloading === od.verificationId}
-                    >
-                      {downloading === od.verificationId ? 'Downloading...' : 'Download PDF'}
-                    </Button>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

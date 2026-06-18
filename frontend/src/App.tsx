@@ -29,7 +29,8 @@ const RoleRedirect = () => {
   if (!user) return <Navigate to="/login" replace />;
   switch (user.role) {
     case 'STUDENT': return <Navigate to="/student-dashboard" replace />;
-    case 'FACULTY': return <Navigate to="/faculty-dashboard" replace />;
+    case 'FACULTY': return <Navigate to="/organizer-dashboard" replace />;
+    case 'HOD': return <Navigate to="/faculty-dashboard" replace />;
     case 'ADMIN': return <Navigate to="/admin-dashboard" replace />;
     default: return <Navigate to="/events" replace />;
   }
@@ -60,14 +61,19 @@ function App() {
                   <Route path="/student-ods" element={<StudentODs />} />
                 </Route>
 
-                {/* Organizer Student Routes */}
-                <Route element={<ProtectedRoute allowedRoles={['STUDENT', 'ADMIN']} requireClubOrganizer />}>
+                {/* Faculty & HOD Organizer Routes */}
+                <Route element={<ProtectedRoute allowedRoles={['FACULTY', 'HOD', 'ADMIN']} />}>
                   <Route path="/organizer-dashboard" element={<OrganizerDashboard />} />
                   <Route path="/create-event" element={<CreateEvent />} />
+                </Route>
+
+                {/* Scanner Route (Faculty, HOD, Admin, and Volunteer Students) */}
+                <Route element={<ProtectedRoute allowedRoles={['STUDENT', 'FACULTY', 'HOD', 'ADMIN']} requireClubOrganizer />}>
                   <Route path="/volunteer-scanner" element={<VolunteerScanner />} />
                 </Route>
 
-                <Route element={<ProtectedRoute allowedRoles={['FACULTY', 'ADMIN']} />}>
+                {/* HOD Approver Route */}
+                <Route element={<ProtectedRoute allowedRoles={['HOD', 'ADMIN']} />}>
                   <Route path="/faculty-dashboard" element={<FacultyDashboard />} />
                 </Route>
 

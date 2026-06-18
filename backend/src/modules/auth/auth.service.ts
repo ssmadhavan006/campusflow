@@ -25,6 +25,8 @@ export class AuthService {
     name: string;
     rollNumber?: string;
     department?: string;
+    class?: string;
+    section?: string;
     role?: Role;
   }) {
     const existingUser = await prisma.user.findFirst({
@@ -49,6 +51,8 @@ export class AuthService {
         name: data.name,
         rollNumber: data.rollNumber || null,
         department: data.department || null,
+        class: data.class || null,
+        section: data.section || null,
         role: data.role || Role.STUDENT,
       },
     });
@@ -60,6 +64,8 @@ export class AuthService {
       email: user.email,
       name: user.name,
       role: user.role,
+      class: user.class,
+      section: user.section,
     };
   }
 
@@ -107,6 +113,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
+        rollNumber: user.rollNumber,
+        department: user.department,
+        class: user.class,
+        section: user.section,
         clubMembers: user.clubMembers,
       },
       accessToken,
