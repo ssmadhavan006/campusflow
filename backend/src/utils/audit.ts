@@ -18,6 +18,6 @@ export const logAudit = async (
       },
     });
   } catch (error) {
-    console.error('[AUDIT_ERROR] Failed to write audit log:', error);
+    console.error(`[AUDIT_ERROR] Failed to write audit log for action="${action}" entityType="${entityType}" entityId="${entityId}":`, error);
   }
 };

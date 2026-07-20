@@ -18,8 +18,17 @@ class DiskStorageService implements IStorageService {
     }
   }
 
+  private getSecurePath(key: string): string {
+    const resolvedPath = path.resolve(this.baseDir, key);
+    const relative = path.relative(this.baseDir, resolvedPath);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error('Path traversal detected');
+    }
+    return resolvedPath;
+  }
+
   async saveFile(key: string, data: Buffer): Promise<string> {
-    const filePath = path.join(this.baseDir, key);
+    const filePath = this.getSecurePath(key);
     const dir = path.dirname(filePath);
 
     if (!fs.existsSync(dir)) {
@@ -31,14 +40,14 @@ class DiskStorageService implements IStorageService {
   }
 
   async deleteFile(key: string): Promise<void> {
-    const filePath = path.join(this.baseDir, key);
+    const filePath = this.getSecurePath(key);
     if (fs.existsSync(filePath)) {
       await fs.promises.unlink(filePath);
     }
   }
 
   getFilePath(key: string): string {
-    return path.join(this.baseDir, key);
+    return this.getSecurePath(key);
   }
 }
 
