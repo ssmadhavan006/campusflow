@@ -11,6 +11,8 @@ import {
   Alert,
   CircularProgress,
   Divider,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import { Person as ProfileIcon } from '@mui/icons-material';
 
@@ -25,6 +27,25 @@ export const Profile: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const [emailNotifications, setEmailNotifications] = useState(user?.emailNotificationsEnabled ?? true);
+  const [emailNotifSaving, setEmailNotifSaving] = useState(false);
+
+  const handleToggleEmailNotifications = async () => {
+    const next = !emailNotifications;
+    setEmailNotifications(next);
+    setEmailNotifSaving(true);
+    try {
+      await updateProfile({ emailNotificationsEnabled: next });
+    } catch (err) {
+      setEmailNotifications(!next);
+    } finally {
+      setEmailNotifSaving(false);
+    }
+  };
+
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +72,7 @@ export const Profile: React.FC = () => {
   return (
     <Box maxWidth={600} mx="auto">
       <Box mb={4}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
           My Account Profile
         </Typography>
         <Typography variant="body2" color="text.secondary">
@@ -169,6 +190,18 @@ export const Profile: React.FC = () => {
                   disabled={loading}
                 />
               </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={emailNotifications}
+                      onChange={handleToggleEmailNotifications}
+                      disabled={emailNotifSaving}
+                    />
+                  }
+                  label="Email me about registration, payment, waitlist, and OD updates"
+                />
+              </Grid>
             </Grid>
 
             <Button
@@ -185,6 +218,7 @@ export const Profile: React.FC = () => {
           </form>
         </CardContent>
       </Card>
+
     </Box>
   );
 };
