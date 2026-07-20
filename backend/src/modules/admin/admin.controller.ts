@@ -5,15 +5,18 @@ import { Role } from '@prisma/client';
 
 export const UpdateRoleSchema = z.object({
   body: z.object({
-    role: z.enum(['STUDENT', 'FACULTY', 'ADMIN']),
+    role: z.enum(['STUDENT', 'FACULTY', 'HOD', 'ADMIN']),
   }),
 });
 
 export class AdminController {
   static async getUsers(req: Request, res: Response, next: NextFunction) {
     try {
-      const users = await AdminService.getUsers();
-      return res.status(200).json({ status: 'success', data: { users } });
+      const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const search = req.query.search as string | undefined;
+      const result = await AdminService.getUsers(page, limit, search);
+      return res.status(200).json({ status: 'success', data: { users: result.users, total: result.total, page: result.page } });
     } catch (error: any) {
       return next(error);
     }
@@ -31,8 +34,10 @@ export class AdminController {
 
   static async getAuditLogs(req: Request, res: Response, next: NextFunction) {
     try {
-      const logs = await AdminService.getAuditLogs();
-      return res.status(200).json({ status: 'success', data: { auditLogs: logs } });
+      const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const result = await AdminService.getAuditLogs(page, limit);
+      return res.status(200).json({ status: 'success', data: { auditLogs: result.auditLogs, total: result.total, page: result.page } });
     } catch (error: any) {
       return next(error);
     }
