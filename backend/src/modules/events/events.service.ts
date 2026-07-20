@@ -11,7 +11,11 @@ export class EventsService {
       throw new Error('Invalid poster image format.');
     }
     const fileType = matches[1];
-    const extension = fileType.split('/')[1] || 'png';
+    const extension = (fileType.split('/')[1] || 'png').toLowerCase();
+    const allowedExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+    if (!allowedExtensions.includes(extension)) {
+      throw new Error('Invalid poster image extension.');
+    }
     const buffer = Buffer.from(matches[2], 'base64');
     const filename = `posters/poster_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${extension}`;
     await storageService.saveFile(filename, buffer);
@@ -42,7 +46,11 @@ export class EventsService {
 
     let posterPath: string | null = null;
     if (data.poster) {
-      posterPath = await this.savePosterBase64(data.poster);
+      if (data.poster.startsWith('data:')) {
+        posterPath = await this.savePosterBase64(data.poster);
+      } else {
+        posterPath = data.poster;
+      }
     }
 
     const event = await prisma.event.create({
@@ -110,7 +118,11 @@ export class EventsService {
 
     let posterPath: string | undefined = undefined;
     if (data.poster) {
-      posterPath = await this.savePosterBase64(data.poster);
+      if (data.poster.startsWith('data:')) {
+        posterPath = await this.savePosterBase64(data.poster);
+      } else {
+        posterPath = data.poster;
+      }
     }
 
     // Extract poster from data to avoid passing base64 directly to prisma update
@@ -228,19 +240,60 @@ export class EventsService {
     role?: Role;
     userId?: string;
     onlyManage?: boolean;
+    page?: number;
+    limit?: number;
+    search?: string;
+    feeType?: 'FREE' | 'PAID';
+    dateFrom?: string;
+    dateTo?: string;
+    availableOnly?: boolean;
   }) {
     const where: any = {};
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
+    const skip = (page - 1) * limit;
 
     if (filters.clubId) {
       where.clubId = filters.clubId;
     }
 
-    if (filters.onlyManage && filters.userId) {
+    if (filters.search) {
       where.OR = [
+        { title: { contains: filters.search, mode: 'insensitive' } },
+        { description: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.feeType === 'PAID') {
+      where.isPaid = true;
+    } else if (filters.feeType === 'FREE') {
+      where.isPaid = false;
+    }
+
+    if (filters.dateFrom) {
+      where.date = { ...where.date, gte: new Date(filters.dateFrom) };
+    }
+    if (filters.dateTo) {
+      where.date = { ...where.date, lte: new Date(filters.dateTo) };
+    }
+
+    if (filters.availableOnly) {
+      where.remainingSeats = { gt: 0 };
+    }
+
+    if (filters.onlyManage && filters.userId) {
+      const manageOr: any[] = [
         { organizerId: filters.userId },
         { club: { createdById: filters.userId } },
         { coHosts: { some: { userId: filters.userId } } }
       ];
+      if (filters.search) {
+        where.AND = where.OR ? [where.OR] : [];
+        delete where.OR;
+        where.AND.push({ OR: manageOr });
+      } else {
+        where.OR = manageOr;
+      }
       if (filters.status) {
         where.status = filters.status;
       }
@@ -263,42 +316,57 @@ export class EventsService {
           where.status = filters.status;
         } else {
           where.status = filters.status;
-          where.OR = [
+          const ownerOr: any[] = [
             { organizerId: filters.userId },
             { club: { createdById: filters.userId } },
             { coHosts: { some: { userId: filters.userId } } }
           ];
+          if (filters.search) {
+            where.AND = where.OR ? [where.OR] : [];
+            delete where.OR;
+            where.AND.push({ OR: ownerOr });
+          } else {
+            where.OR = ownerOr;
+          }
         }
       } else {
-        where.OR = [
+        const ownerOr: any[] = [
           { status: { in: publicStatuses } },
           { organizerId: filters.userId },
           { club: { createdById: filters.userId } },
           { coHosts: { some: { userId: filters.userId } } }
         ];
+        if (filters.search) {
+          where.AND = where.OR ? [where.OR] : [];
+          delete where.OR;
+          where.AND.push({ OR: ownerOr });
+        } else {
+          where.OR = ownerOr;
+        }
       }
     }
 
-    return prisma.event.findMany({
-      where,
-      include: {
-        club: { select: { id: true, name: true } },
-        organizer: { select: { id: true, name: true, email: true } },
-        approvals: {
-          orderBy: { timestamp: 'desc' },
-          take: 1,
-          include: { coordinator: { select: { name: true } } },
-        },
-        registrations: {
-          include: {
-            payment: true,
-            attendance: true,
+    const [events, total] = await Promise.all([
+      prisma.event.findMany({
+        where,
+        include: {
+          club: { select: { id: true, name: true } },
+          organizer: { select: { id: true, name: true, email: true } },
+          approvals: {
+            orderBy: { timestamp: 'desc' },
+            take: 1,
+            include: { coordinator: { select: { name: true } } },
           },
+          _count: { select: { registrations: true, attendance: true } },
         },
-        _count: { select: { registrations: true, attendance: true } },
-      },
-      orderBy: { date: 'asc' },
-    });
+        orderBy: { date: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.event.count({ where }),
+    ]);
+
+    return { events, total, page, limit };
   }
 
   static async getEventById(id: string, userId: string, role: Role) {
