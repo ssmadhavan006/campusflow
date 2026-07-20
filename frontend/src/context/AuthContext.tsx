@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api, setAccessToken } from '../services/api';
+import { connectSocket, disconnectSocket } from '../services/socket';
 
 export interface User {
   id: string;
@@ -10,6 +11,7 @@ export interface User {
   department?: string;
   class?: string;
   section?: string;
+  emailNotificationsEnabled?: boolean;
   clubMembers?: {
     clubId: string;
     role: string;
@@ -20,6 +22,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, passwordHash: string) => Promise<void>;
+  googleLogin: (token: string) => Promise<{ isNewUser: boolean }>;
   register: (data: {
     email: string;
     passwordHash: string;
@@ -31,7 +34,7 @@ interface AuthContextType {
     role?: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
-  updateProfile: (data: { name?: string; rollNumber?: string; department?: string; class?: string; section?: string }) => Promise<void>;
+  updateProfile: (data: { name?: string; rollNumber?: string; department?: string; class?: string; section?: string; emailNotificationsEnabled?: boolean }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,6 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const userRes = await api.get('/auth/me');
         setUser(userRes.data.data.user);
+        connectSocket();
       } catch (error) {
         setUser(null);
       } finally {
@@ -61,6 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleUnauthorized = () => {
       setUser(null);
       setAccessToken(null);
+      disconnectSocket();
     };
 
     window.addEventListener('auth:unauthorized', handleUnauthorized);
@@ -74,6 +79,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { user: loggedInUser, accessToken } = res.data.data;
     setAccessToken(accessToken);
     setUser(loggedInUser);
+    connectSocket();
+  };
+
+  const googleLogin = async (token: string) => {
+    const res = await api.post('/auth/google-login', { token });
+    const { user: loggedInUser, accessToken, isNewUser } = res.data.data;
+    setAccessToken(accessToken);
+    setUser(loggedInUser);
+    connectSocket();
+    return { isNewUser };
   };
 
   const register = async (data: {
@@ -106,16 +121,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setUser(null);
       setAccessToken(null);
+      disconnectSocket();
     }
   };
 
-  const updateProfile = async (data: { name?: string; rollNumber?: string; department?: string; class?: string; section?: string }) => {
+  const updateProfile = async (data: { name?: string; rollNumber?: string; department?: string; class?: string; section?: string; emailNotificationsEnabled?: boolean }) => {
     const res = await api.put('/users/profile', data);
     setUser(res.data.data.user);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, login, googleLogin, register, logout, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );
