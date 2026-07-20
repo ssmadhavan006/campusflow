@@ -98,7 +98,7 @@ export const StudentDashboard: React.FC = () => {
   return (
     <Box>
       <Box mb={4}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
           Welcome back, {user?.name}!
         </Typography>
         <Typography variant="body2" color="text.secondary">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { useThemeMode } from '../../context/ThemeModeContext';
+import { PaymentDialog } from '../../components/common/PaymentDialog';
+import { ConfirmationDialog } from '../../components/common/ConfirmationDialog';
 import {
   Box,
   Card,
@@ -53,27 +54,34 @@ interface Registration {
 }
 
 export const StudentRegistrations: React.FC = () => {
-  const { mode } = useThemeMode();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 5;
 
   const [qrOpen, setQrOpen] = useState(false);
   const [activeQrToken, setActiveQrToken] = useState<string | null>(null);
   const [activeEventTitle, setActiveEventTitle] = useState('');
 
+  // Payment Dialog state
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [payingRegId, setPayingRegId] = useState<string | null>(null);
-  const [paymentRef, setPaymentRef] = useState('');
-  const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [paymentLoading, setPaymentLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'gpay' | 'bank'>('gpay');
+  const [payingAmount, setPayingAmount] = useState<number>(0);
+
+  // Cancel Confirmation state
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancellingRegId, setCancellingRegId] = useState<string | null>(null);
 
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchRegistrations = async () => {
+  const fetchRegistrations = async (pageVal = 1) => {
     try {
-      const res = await api.get('/registrations/me');
+      const res = await api.get(`/registrations/me?page=${pageVal}&limit=${limit}`);
       setRegistrations(res.data.data.registrations);
+      setTotal(res.data.data.total || 0);
+      setPage(res.data.data.page || 1);
     } catch (err) {
       console.error(err);
     } finally {
@@ -82,47 +90,36 @@ export const StudentRegistrations: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchRegistrations();
+    fetchRegistrations(1);
   }, []);
 
-  const handleCancel = async (id: string) => {
-    if (!window.confirm('Are you sure you want to cancel this registration?')) return;
+  const handleCancel = (id: string) => {
+    setCancellingRegId(id);
+    setCancelConfirmOpen(true);
+  };
+
+  const executeCancel = async () => {
+    if (!cancellingRegId) return;
+    setCancelConfirmOpen(false);
     setAlert(null);
     try {
-      await api.put(`/registrations/${id}/cancel`);
+      await api.put(`/registrations/${cancellingRegId}/cancel`);
       setAlert({ type: 'success', text: 'Registration cancelled successfully.' });
-      fetchRegistrations();
+      fetchRegistrations(page);
     } catch (err: any) {
       setAlert({ type: 'error', text: err.response?.data?.message || 'Failed to cancel registration.' });
+    } finally {
+      setCancellingRegId(null);
     }
   };
 
-  const handleOpenPayment = (regId: string) => {
+  const handleOpenPayment = (regId: string, price: string) => {
     setPayingRegId(regId);
+    setPayingAmount(Number(price));
     setPaymentOpen(true);
   };
 
-  const handlePaymentSubmit = async () => {
-    if (!paymentRef) return setPaymentError('Transaction reference is required.');
-    setPaymentError(null);
-    setPaymentLoading(true);
-
-    try {
-      await api.post(`/registrations/${payingRegId}/verify-payment`, {
-        reference: paymentRef,
-        status: 'PAID',
-      });
-      setPaymentOpen(false);
-      setPayingRegId(null);
-      setPaymentRef('');
-      setAlert({ type: 'success', text: 'Payment successfully processed! Ticket is now active.' });
-      fetchRegistrations();
-    } catch (err: any) {
-      setPaymentError(err.response?.data?.message || 'Failed to verify payment.');
-    } finally {
-      setPaymentLoading(false);
-    }
-  };
+  // Removed handlePaymentSubmit, handled in the JSX block below
 
   const handleOpenQr = (token: string, title: string) => {
     setActiveQrToken(token);
@@ -156,7 +153,7 @@ export const StudentRegistrations: React.FC = () => {
   return (
     <Box>
       <Box mb={4}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
           My Event Registrations
         </Typography>
         <Typography variant="body2" color="text.secondary">
@@ -205,7 +202,7 @@ export const StudentRegistrations: React.FC = () => {
                         variant="contained"
                         color="warning"
                         startIcon={<PaymentIcon />}
-                        onClick={() => handleOpenPayment(reg.id)}
+                        onClick={() => handleOpenPayment(reg.id, reg.event.price)}
                       >
                         Complete Payment
                       </Button>
@@ -240,8 +237,32 @@ export const StudentRegistrations: React.FC = () => {
         </Grid>
       )}
 
+      {total > limit && (
+        <Box display="flex" justifyContent="center" mt={4} mb={2} gap={1}>
+          <Button
+            variant="outlined"
+            disabled={page <= 1}
+            onClick={() => fetchRegistrations(page - 1)}
+          >
+            Previous
+          </Button>
+          <Box display="flex" alignItems="center" px={2}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+              Page {page} of {Math.ceil(total / limit)}
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            disabled={page >= Math.ceil(total / limit)}
+            onClick={() => fetchRegistrations(page + 1)}
+          >
+            Next
+          </Button>
+        </Box>
+      )}
+
       <Dialog open={qrOpen} onClose={() => setQrOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ textAlign: 'center', fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
+        <DialogTitle sx={{ textAlign: 'center', fontWeight: 'bold' }}>
           Your Event Entry Ticket
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 3 }}>
@@ -261,10 +282,14 @@ export const StudentRegistrations: React.FC = () => {
                 fullWidth
                 InputProps={{ readOnly: true }}
                 value={activeQrToken}
-                onClick={(e) => {
+                onClick={async (e) => {
                   const input = e.target as HTMLInputElement;
                   input.select();
-                  navigator.clipboard.writeText(activeQrToken);
+                  try {
+                    await navigator.clipboard.writeText(activeQrToken);
+                  } catch {
+                    console.error('Failed to copy token to clipboard');
+                  }
                 }}
                 sx={{
                   '& input': { textAlign: 'center', fontSize: '0.75rem', fontFamily: 'monospace', cursor: 'pointer' }
@@ -283,115 +308,29 @@ export const StudentRegistrations: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={paymentOpen} onClose={() => setPaymentOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
-          Simulated Payment Gateway
-        </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Please select a simulated payment method below to complete your registration.
-          </Typography>
+      <PaymentDialog
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        amount={payingAmount}
+        onSubmit={async (reference) => {
+          await api.post(`/registrations/${payingRegId}/submit-reference`, { reference });
+          setAlert({ type: 'success', text: 'Payment reference submitted! Pending organizer verification.' });
+          fetchRegistrations(page);
+        }}
+      />
 
-          <Box display="flex" gap={1.5} mb={2.5}>
-            <Button
-              variant={paymentMethod === 'gpay' ? 'contained' : 'outlined'}
-              onClick={() => { setPaymentMethod('gpay'); setPaymentRef(''); }}
-              fullWidth
-              size="small"
-            >
-              GPay / UPI
-            </Button>
-            <Button
-              variant={paymentMethod === 'bank' ? 'contained' : 'outlined'}
-              onClick={() => { setPaymentMethod('bank'); setPaymentRef(''); }}
-              fullWidth
-              size="small"
-            >
-              Bank Transfer
-            </Button>
-          </Box>
-
-          {paymentMethod === 'gpay' ? (
-            <Box sx={{ p: 2, mb: 2.5, bgcolor: mode === 'dark' ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)', borderRadius: 2, border: mode === 'dark' ? '1px dashed #fafafa' : '1px dashed #09090b' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: mode === 'dark' ? '#fafafa' : '#09090b' }}>
-                UPI / Google Pay Details
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
-                <strong>UPI ID:</strong> pay@campusflow
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 1.5 }}>
-                <strong>Link:</strong> <a href="upi://pay?pa=pay@campusflow&pn=CampusFlow&am=10.00" style={{ color: mode === 'dark' ? '#fafafa' : '#09090b', textDecoration: 'underline' }}>Open GPay Link</a>
-              </Typography>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Pay using GPay and copy the transaction ID (UPI Ref No) from your app.
-              </Typography>
-            </Box>
-          ) : (
-            <Box sx={{ p: 2, mb: 2.5, bgcolor: mode === 'dark' ? 'rgba(255, 255, 255, 0.02)' : 'rgba(0, 0, 0, 0.02)', borderRadius: 2, border: mode === 'dark' ? '1px dashed #a1a1aa' : '1px dashed #71717a' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: mode === 'dark' ? '#a1a1aa' : '#71717a' }}>
-                Bank Transfer Details
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
-                <strong>Bank Name:</strong> CampusFlow Central Bank
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
-                <strong>Account No:</strong> 123498761234
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
-                <strong>IFSC Code:</strong> CFB0001234
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 1.5 }}>
-                <strong>Holder:</strong> CampusFlow Events Account
-              </Typography>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Transfer via IMPS/NEFT and copy the transaction reference number.
-              </Typography>
-            </Box>
-          )}
-
-          {paymentError && <Alert severity="error" sx={{ mb: 2 }}>{paymentError}</Alert>}
-
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end', mb: 2 }}>
-            <TextField
-              fullWidth
-              label="Transaction Reference"
-              variant="outlined"
-              size="small"
-              required
-              value={paymentRef}
-              onChange={(e) => setPaymentRef(e.target.value)}
-              disabled={paymentLoading}
-              placeholder={paymentMethod === 'gpay' ? 'e.g. UPI Ref No' : 'e.g. Txn Ref No'}
-            />
-            <Button
-              variant="outlined"
-              color="secondary"
-              size="small"
-              onClick={() => {
-                const randomId = Math.floor(100000 + Math.random() * 900000);
-                const prefix = paymentMethod === 'gpay' ? 'CF-GPAY-' : 'CF-BANK-';
-                setPaymentRef(`${prefix}${randomId}`);
-              }}
-              sx={{ whiteSpace: 'nowrap', height: 40 }}
-            >
-              Simulate Reference
-            </Button>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentOpen(false)} disabled={paymentLoading}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handlePaymentSubmit}
-            variant="contained"
-            color="primary"
-            disabled={paymentLoading}
-          >
-            {paymentLoading ? <CircularProgress size={24} color="inherit" /> : 'Confirm Payment'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmationDialog
+        open={cancelConfirmOpen}
+        title="Confirm Cancellation"
+        message="Are you sure you want to cancel this registration?"
+        onConfirm={executeCancel}
+        onCancel={() => {
+          setCancelConfirmOpen(false);
+          setCancellingRegId(null);
+        }}
+        severity="warning"
+        confirmText="Cancel Registration"
+      />
     </Box>
   );
 };

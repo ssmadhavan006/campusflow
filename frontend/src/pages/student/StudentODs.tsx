@@ -11,7 +11,9 @@ import {
   TableHead,
   TableRow,
   Paper,
+  Button,
 } from '@mui/material';
+import { GetApp as DownloadIcon } from '@mui/icons-material';
 
 interface ODLetter {
   id: string;
@@ -30,20 +32,45 @@ export const StudentODs: React.FC = () => {
   const [ods, setOds] = useState<ODLetter[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchODs = async () => {
-      try {
-        const res = await api.get('/od/me');
-        setOds(res.data.data.odLetters);
-      } catch (err) {
-        console.error('Failed to fetch OD letters', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 5;
 
-    fetchODs();
+  const fetchODs = async (pageVal = 1) => {
+    try {
+      const res = await api.get(`/od/me?page=${pageVal}&limit=${limit}`);
+      setOds(res.data.data.odLetters);
+      setTotal(res.data.data.total || 0);
+      setPage(res.data.data.page || 1);
+    } catch (err) {
+      console.error('Failed to fetch OD letters', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchODs(1);
   }, []);
+
+  const handleDownload = async (verificationId: string, eventTitle: string) => {
+    try {
+      const res = await api.get(`/od/download/${verificationId}`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `OD_${eventTitle.replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download OD letter', err);
+      alert('Failed to download OD letter. Please try again.');
+    }
+  };
 
   if (loading) {
     return (
@@ -56,7 +83,7 @@ export const StudentODs: React.FC = () => {
   return (
     <Box>
       <Box mb={4}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
           My On-Duty Letters
         </Typography>
         <Typography variant="body2" color="text.secondary">
@@ -78,6 +105,7 @@ export const StudentODs: React.FC = () => {
                 <TableCell sx={{ fontWeight: 'bold' }}>Duration</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>Verification ID</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>Approval Date</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -92,11 +120,45 @@ export const StudentODs: React.FC = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>{new Date(od.approvalTimestamp).toLocaleString()}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<DownloadIcon />}
+                      onClick={() => handleDownload(od.verificationId, od.registration.event.title)}
+                    >
+                      Download
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {total > limit && (
+        <Box display="flex" justifyContent="center" mt={4} mb={2} gap={1}>
+          <Button
+            variant="outlined"
+            disabled={page <= 1}
+            onClick={() => fetchODs(page - 1)}
+          >
+            Previous
+          </Button>
+          <Box display="flex" alignItems="center" px={2}>
+            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+              Page {page} of {Math.ceil(total / limit)}
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            disabled={page >= Math.ceil(total / limit)}
+            onClick={() => fetchODs(page + 1)}
+          >
+            Next
+          </Button>
+        </Box>
       )}
     </Box>
   );
