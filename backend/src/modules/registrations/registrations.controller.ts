@@ -47,8 +47,10 @@ export class RegistrationsController {
 
   static async getMy(req: Request, res: Response, next: NextFunction) {
     try {
-      const list = await RegistrationsService.getMyRegistrations(req.user!.id);
-      return res.status(200).json({ status: 'success', data: { registrations: list } });
+      const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+      const result = await RegistrationsService.getMyRegistrations(req.user!.id, page, limit);
+      return res.status(200).json({ status: 'success', data: { registrations: result.registrations, total: result.total, page: result.page } });
     } catch (error: any) {
       return next(error);
     }
@@ -61,7 +63,8 @@ export class RegistrationsController {
         req.params.id,
         reference,
         status as PaymentStatus,
-        req.user!.id
+        req.user!.id,
+        req.user!.role
       );
       return res.status(200).json({ status: 'success', data: { registration: reg } });
     } catch (error: any) {

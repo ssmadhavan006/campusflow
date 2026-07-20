@@ -82,7 +82,7 @@ export class RegistrationsService {
     return registration;
   }
 
-  static async verifyPayment(registrationId: string, reference: string, status: PaymentStatus, userId: string) {
+  static async verifyPayment(registrationId: string, reference: string, status: PaymentStatus, userId: string, role: Role) {
     const registration = await prisma.registration.findUnique({
       where: { id: registrationId },
       include: { event: true, payment: true },
@@ -91,15 +91,28 @@ export class RegistrationsService {
     if (!registration) throw new Error('Registration not found.');
     if (!registration.payment) throw new Error('No payment record found for this registration.');
 
-    if (registration.studentId !== userId && registration.event.organizerId !== userId) {
+    const club = await prisma.club.findUnique({ where: { id: registration.event.clubId } });
+    const isCoordinator = club?.createdById === userId;
+    const isCoHost = await prisma.eventCoHost.findUnique({
+      where: { eventId_userId: { eventId: registration.eventId, userId } }
+    }) !== null;
+
+    if (
+      registration.event.organizerId !== userId &&
+      !isCoHost &&
+      !isCoordinator &&
+      role !== Role.ADMIN
+    ) {
       throw new Error('Not authorized to verify this payment.');
     }
 
-    if (registration.payment.status === PaymentStatus.PAID) {
-      throw new Error('Payment has already been processed.');
-    }
-
     const updated = await prisma.$transaction(async (tx) => {
+      const currentPayment = await tx.payment.findUnique({ where: { registrationId } });
+      if (!currentPayment) throw new Error('No payment record found for this registration.');
+      if (currentPayment.status === PaymentStatus.PAID) {
+        throw new Error('Payment has already been processed.');
+      }
+
       await tx.payment.update({
         where: { registrationId },
         data: {
@@ -194,7 +207,7 @@ export class RegistrationsService {
     const membership = await prisma.clubMember.findUnique({
       where: { clubId_userId: { clubId: event.clubId, userId } }
     });
-    const isLeader = membership?.role === 'LEADER' || membership?.role === 'CO_LEADER';
+    const isLeader = membership?.role === 'HOD' || membership?.role === 'FACULTY';
 
     const isCoHost = await prisma.eventCoHost.findUnique({
       where: { eventId_userId: { eventId, userId } }
@@ -220,21 +233,28 @@ export class RegistrationsService {
     });
   }
 
-  static async getMyRegistrations(studentId: string) {
-    return prisma.registration.findMany({
-      where: { studentId },
-      include: {
-        event: {
-          include: {
-            club: { select: { name: true } },
-            organizer: { select: { name: true } },
+  static async getMyRegistrations(studentId: string, page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit;
+    const [registrations, total] = await Promise.all([
+      prisma.registration.findMany({
+        where: { studentId },
+        include: {
+          event: {
+            include: {
+              club: { select: { name: true } },
+              organizer: { select: { name: true } },
+            },
           },
+          payment: true,
+          attendance: true,
+          odLetter: true,
         },
-        payment: true,
-        attendance: true,
-        odLetter: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.registration.count({ where: { studentId } }),
+    ]);
+    return { registrations, total, page };
   }
 }

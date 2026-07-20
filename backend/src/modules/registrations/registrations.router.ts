@@ -28,6 +28,7 @@ router.put('/:id/cancel', authenticate, RegistrationsController.cancel);
 router.post(
   '/:id/verify-payment',
   authenticate,
+  authorize([Role.FACULTY, Role.HOD, Role.ADMIN]),
   validate(VerifyPaymentSchema),
   RegistrationsController.verifyPayment
 );
