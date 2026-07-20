@@ -24,7 +24,7 @@ describe('Google OAuth Login Integration Test', () => {
           email: validEmail,
           email_verified: 'true',
           name: 'Regular Google User',
-          aud: '845315933534-lcbj5lqb8ockg20d9v3en75665lja6bl.apps.googleusercontent.com',
+          aud: 'test-google-client-id.apps.googleusercontent.com',
         })
       })
     ) as any;

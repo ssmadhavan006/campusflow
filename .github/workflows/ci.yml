@@ -54,7 +54,7 @@ jobs:
           JWT_VERIFICATION_SECRET: test_verify_secret_ci
           JWT_RESET_SECRET: test_reset_secret_ci
           QR_SECRET: test_qr_secret_ci
-          GOOGLE_CLIENT_ID: 845315933534-lcbj5lqb8ockg20d9v3en75665lja6bl.apps.googleusercontent.com
+          GOOGLE_CLIENT_ID: test-google-client-id.apps.googleusercontent.com
           FRONTEND_URL: http://localhost:5173
           BACKEND_URL: http://localhost:3000
           UPLOAD_DIR: /tmp/uploads
