@@ -28,3 +28,7 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 Thumbs.db
+
+FIX_REPORT.md
+AUDIT_REPORT.md
+
