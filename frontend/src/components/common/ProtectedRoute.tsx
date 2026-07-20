@@ -29,6 +29,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, re
     return <Navigate to="/login" replace />;
   }
 
+  const isProfileIncomplete =
+    (user.role === 'STUDENT' && (!user.rollNumber || !user.department)) ||
+    ((user.role === 'FACULTY' || user.role === 'HOD') && !user.department);
+
+  if (isProfileIncomplete && !window.location.pathname.startsWith('/complete-profile')) {
+    return <Navigate to="/complete-profile" replace />;
+  }
+
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return <Navigate to="/unauthorized" replace />;
   }
