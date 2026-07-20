@@ -3,12 +3,25 @@ import axios from 'axios';
 export const api = axios.create({
   baseURL: '/api',
   withCredentials: true,
+  timeout: 15000,
 });
 
 let accessToken: string | null = null;
 
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
+};
+
+export const getAccessToken = () => accessToken;
+
+/**
+ * Builds a URL for a protected /uploads asset with the access token attached
+ * as a query param, since browser-native <img>/<link> requests cannot send
+ * an Authorization header.
+ */
+export const getUploadUrl = (relativePath: string) => {
+  const token = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+  return `/uploads/${relativePath}${token}`;
 };
 
 api.interceptors.request.use((config) => {
