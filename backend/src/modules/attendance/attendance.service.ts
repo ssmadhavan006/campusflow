@@ -17,7 +17,7 @@ export class AttendanceService {
     const assignerMembership = await prisma.clubMember.findUnique({
       where: { clubId_userId: { clubId: event.clubId, userId: assignedById } }
     });
-    const isLeader = assignerMembership?.role === 'LEADER' || assignerMembership?.role === 'CO_LEADER';
+    const isLeader = assignerMembership?.role === 'HOD' || assignerMembership?.role === 'FACULTY';
 
     const isCoHost = await prisma.eventCoHost.findUnique({
       where: { eventId_userId: { eventId, userId: assignedById } }
@@ -30,7 +30,7 @@ export class AttendanceService {
       !isLeader &&
       assignerUser.role !== Role.ADMIN
     ) {
-      throw new Error('Only the event organizer, co-host, club coordinator, club leader, or admin can assign volunteers.');
+      throw new Error('Only the event organizer, co-host, club coordinator, HOD, Faculty, or admin can assign volunteers.');
     }
 
     const volunteerUser = await prisma.user.findUnique({ where: { id: userId } });
@@ -97,16 +97,27 @@ export class AttendanceService {
     }
 
     const volunteerUser = await prisma.user.findUnique({ where: { id: volunteerId } });
-    const scannerMembership = await prisma.clubMember.findUnique({
-      where: { clubId_userId: { clubId: event.clubId, userId: volunteerId } }
-    });
+    const isAssignedVolunteer = await prisma.volunteer.findUnique({
+      where: { eventId_userId: { eventId, userId: volunteerId } }
+    }) !== null;
 
     const isCoHostScanner = await prisma.eventCoHost.findUnique({
       where: { eventId_userId: { eventId, userId: volunteerId } }
     }) !== null;
 
-    if (!scannerMembership && event.organizerId !== volunteerId && !isCoHostScanner && volunteerUser?.role !== Role.ADMIN) {
-      throw new Error('You are not authorized to scan tickets for this event. Only members, hosts, co-hosts, or admin can scan.');
+    const club = await prisma.club.findUnique({ where: { id: event.clubId } });
+    const isCoordinator = club?.createdById === volunteerId;
+
+    const hasScanPermission = 
+      isAssignedVolunteer || 
+      event.organizerId === volunteerId || 
+      isCoHostScanner || 
+      isCoordinator || 
+      volunteerUser?.role === Role.ADMIN ||
+      volunteerUser?.role === Role.HOD;
+
+    if (!hasScanPermission) {
+      throw new Error('You are not authorized to scan tickets for this event. Only assigned volunteers, hosts, co-hosts, coordinators, department heads, or admin can scan.');
     }
 
     const existing = await prisma.attendance.findUnique({
@@ -152,7 +163,7 @@ export class AttendanceService {
     const membership = await prisma.clubMember.findUnique({
       where: { clubId_userId: { clubId: event.clubId, userId } }
     });
-    const isLeader = membership?.role === 'LEADER' || membership?.role === 'CO_LEADER';
+    const isLeader = membership?.role === 'HOD' || membership?.role === 'FACULTY';
 
     const isCoHost = await prisma.eventCoHost.findUnique({
       where: { eventId_userId: { eventId, userId } }

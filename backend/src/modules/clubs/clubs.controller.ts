@@ -14,7 +14,7 @@ export const JoinClubSchema = z.object({
   body: z.object({
     userId: z.string().uuid('Invalid user ID').optional(),
     email: z.string().email('Invalid email').optional(),
-    role: z.string().optional(),
+    role: z.enum(['STUDENT', 'MEMBER', 'FACULTY', 'HOD', 'LEADER']).optional(),
   }),
 });
 
@@ -78,16 +78,16 @@ export class ClubsController {
         where: { clubId_userId: { clubId, userId: requesterId } }
       });
 
-      const isLeader = requesterMembership?.role === 'LEADER';
+      const isPrivileged = requesterMembership?.role === 'HOD' || requesterMembership?.role === 'FACULTY';
 
-      // Requester must be coordinator, admin, or leader
-      if (!isCoordinatorOrAdmin && !isLeader) {
-        return res.status(403).json({ status: 'fail', message: 'Only the club coordinator, club leader, or admin can add members.' });
+      // Requester must be coordinator, admin, or privileged member (HOD, Faculty)
+      if (!isCoordinatorOrAdmin && !isPrivileged) {
+        return res.status(403).json({ status: 'fail', message: 'Only the club coordinator, HOD, Faculty, or admin can add members.' });
       }
 
-      // If assigning LEADER or CO_LEADER, only coordinator or admin can do it
-      if (role && (role === 'LEADER' || role === 'CO_LEADER') && !isCoordinatorOrAdmin) {
-        return res.status(403).json({ status: 'fail', message: 'Only the club coordinator or admin can assign leader/co-leader roles.' });
+      // If assigning HOD or FACULTY, only coordinator or admin can do it
+      if (role && (role === 'HOD' || role === 'FACULTY') && !isCoordinatorOrAdmin) {
+        return res.status(403).json({ status: 'fail', message: 'Only the club coordinator or admin can assign HOD/Faculty roles.' });
       }
 
       const member = await ClubsService.joinClub(clubId, targetUserId, role);

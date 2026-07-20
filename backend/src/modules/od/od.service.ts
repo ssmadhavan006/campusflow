@@ -3,7 +3,7 @@ import { EventStatus, Role } from '@prisma/client';
 import crypto from 'crypto';
 import path from 'path';
 import { env } from '../../config/env';
-import { generateODPDFBuffer } from '../../utils/pdf';
+import { generateODPDFBuffer, generateConsolidatedODPDFBuffer } from '../../utils/pdf';
 import { storageService } from '../../utils/storage';
 import { logAudit } from '../../utils/audit';
 
@@ -16,21 +16,24 @@ export class ODService {
 
     if (!event) throw new Error('Event not found.');
 
-    if (event.status !== EventStatus.ATTENDANCE_VERIFIED && event.status !== EventStatus.COMPLETED) {
+    if (
+      event.status !== EventStatus.ATTENDANCE_VERIFIED &&
+      event.status !== EventStatus.COMPLETED &&
+      event.status !== EventStatus.OD_GENERATED
+    ) {
       throw new Error(`Cannot approve OD generation for event in status: ${event.status}`);
     }
 
     const faculty = await prisma.user.findUnique({ where: { id: facultyId } });
     if (!faculty) throw new Error('Faculty coordinator not found.');
 
-    const updatedEvent = await prisma.event.update({
-      where: { id: eventId },
-      data: { status: EventStatus.OD_GENERATED },
-    });
-
     await logAudit(facultyId, 'OD_APPROVE_EVENT', 'Event', eventId);
 
     if (env.DISABLE_AUTO_OD_GENERATION) {
+      const updatedEvent = await prisma.event.update({
+        where: { id: eventId },
+        data: { status: EventStatus.OD_GENERATED },
+      });
       await logAudit(facultyId, 'OD_GENERATION_SKIPPED_GLOBAL_DISABLE', 'Event', eventId);
       return {
         message: 'Event attendance approved. Automatic OD generation is disabled globally by college policy.',
@@ -50,6 +53,7 @@ export class ODService {
     });
 
     let generatedCount = 0;
+    const failedStudentIds: string[] = [];
 
     for (const log of attendanceLogs) {
       const student = log.registration.student;
@@ -99,32 +103,67 @@ export class ODService {
         generatedCount++;
       } catch (err) {
         console.error(`[OD_GEN_ERROR] Failed to generate OD for student ${student.id}:`, err);
+        failedStudentIds.push(student.id);
       }
     }
 
-    await logAudit(facultyId, 'OD_BATCH_GENERATE', 'Event', eventId, { count: generatedCount });
+    const updatedEvent = await prisma.event.update({
+      where: { id: eventId },
+      data: { status: EventStatus.OD_GENERATED },
+    });
+
+    await logAudit(facultyId, 'OD_BATCH_GENERATE', 'Event', eventId, { count: generatedCount, failed: failedStudentIds.length });
+
+    const message = failedStudentIds.length > 0
+      ? `Successfully approved event and generated ${generatedCount} OD letters. ${failedStudentIds.length} student(s) failed — retry by calling the endpoint again.`
+      : `Successfully approved event and generated ${generatedCount} OD letters.`;
 
     return {
-      message: `Successfully approved event and generated ${generatedCount} OD letters.`,
+      message,
       event: updatedEvent,
+      generatedCount,
+      failedCount: failedStudentIds.length,
+      failedStudentIds,
     };
   }
 
   static async getODLetterFilePath(verificationId: string, userId: string, role: Role) {
     const odLetter = await prisma.oDLetter.findUnique({
       where: { verificationId },
-      include: { registration: { include: { event: true } } },
+      include: { registration: { include: { event: { include: { club: true } } } } },
     });
 
     if (!odLetter) {
       throw new Error('OD Letter not found.');
     }
 
-    if (
-      role === Role.STUDENT &&
-      odLetter.studentId !== userId
-    ) {
-      throw new Error('Not authorized to access this OD Letter.');
+    if (role === Role.STUDENT) {
+      if (odLetter.studentId !== userId) {
+        throw new Error('Not authorized to access this OD Letter.');
+      }
+    } else {
+      const event = odLetter.registration.event;
+      const club = event.club;
+      const isCoordinator = club.createdById === userId;
+
+      const membership = await prisma.clubMember.findUnique({
+        where: { clubId_userId: { clubId: event.clubId, userId } }
+      });
+      const isLeader = membership?.role === 'HOD' || membership?.role === 'FACULTY';
+
+      const isCoHost = await prisma.eventCoHost.findUnique({
+        where: { eventId_userId: { eventId: event.id, userId } }
+      }) !== null;
+
+      if (
+        event.organizerId !== userId &&
+        !isCoHost &&
+        !isCoordinator &&
+        !isLeader &&
+        role !== Role.ADMIN
+      ) {
+        throw new Error('Not authorized to access this OD Letter.');
+      }
     }
 
     if (path.isAbsolute(odLetter.filePath)) {
@@ -161,7 +200,7 @@ export class ODService {
     const membership = await prisma.clubMember.findUnique({
       where: { clubId_userId: { clubId: event.clubId, userId } }
     });
-    const isLeader = membership?.role === 'LEADER' || membership?.role === 'CO_LEADER';
+    const isLeader = membership?.role === 'HOD' || membership?.role === 'FACULTY';
 
     if (
       event.organizerId !== userId &&
@@ -201,11 +240,19 @@ export class ODService {
 
     const isCoHost = event.coHosts.some((ch) => ch.userId === userId);
     const isDeptCreator = event.club.createdById === userId;
+
+    const membership = await prisma.clubMember.findUnique({
+      where: { clubId_userId: { clubId: event.clubId, userId } }
+    });
+    const isClubHOD = membership?.role === 'HOD';
+    const isClubFaculty = membership?.role === 'FACULTY';
+
     if (
       event.organizerId !== userId &&
       !isCoHost &&
       !isDeptCreator &&
-      role !== Role.HOD &&
+      !isClubHOD &&
+      !isClubFaculty &&
       role !== Role.ADMIN
     ) {
       throw new Error('Not authorized to download OD letters for this event.');
@@ -244,8 +291,7 @@ export class ODService {
 
     const hodName = event.approvals[0]?.coordinator.name || 'Head of Department';
     
-    // Import generateConsolidatedODPDFBuffer
-    const { generateConsolidatedODPDFBuffer } = require('../../utils/pdf');
+
 
     const pdfBuffer = await generateConsolidatedODPDFBuffer({
       eventName: event.title,
