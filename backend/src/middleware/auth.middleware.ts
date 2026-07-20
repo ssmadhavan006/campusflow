@@ -37,7 +37,7 @@ export const authenticate = async (
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, env.JWT_SECRET) as { userId: string; email: string; role: Role };
+    const decoded = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'] }) as { userId: string; email: string; role: Role };
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
@@ -71,6 +71,24 @@ export const authenticate = async (
     }
     return res.status(401).json({ status: 'fail', message: 'Invalid or malformed token.' });
   }
+};
+
+/**
+ * Same access-token validation as `authenticate`, but also accepts the token
+ * via a `?token=` query parameter. Browser-native requests such as <img> and
+ * <link> tags (used to load /uploads assets) cannot attach an Authorization
+ * header, so this allows the short-lived access token to be passed in the URL
+ * instead while still enforcing the same JWT verification and expiry.
+ */
+export const authenticateStatic = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.headers.authorization && typeof req.query.token === 'string') {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  return authenticate(req, res, next);
 };
 
 export const authorize = (allowedRoles: Role[]) => {
