@@ -48,6 +48,8 @@ model User {
   rollNumber    String?        @unique
   department    String?
   role          Role           @default(STUDENT)
+  isVerified    Boolean        @default(false)
+  emailNotificationsEnabled Boolean @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -84,6 +86,8 @@ model Club {
 
   members     ClubMember[]
   events      Event[]
+
+  @@index([createdById])
 }
 
 model ClubMember {
@@ -123,6 +127,12 @@ model Event {
   volunteers     Volunteer[]
   attendance     Attendance[]
   coHosts        EventCoHost[]
+  announcements  EventAnnouncement[]
+
+  @@index([status])
+  @@index([clubId])
+  @@index([organizerId])
+  @@index([date])
 }
 
 model EventApproval {
@@ -130,10 +140,13 @@ model EventApproval {
   eventId       String
   event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   coordinatorId String
-  coordinator   User     @relation(fields: [coordinatorId], references: [id])
+  coordinator   User     @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
   approved      Boolean
   comments      String?
   timestamp     DateTime @default(now())
+
+  @@index([eventId])
+  @@index([coordinatorId])
 }
 
 model Registration {
@@ -152,6 +165,9 @@ model Registration {
   odLetter    ODLetter?
 
   @@unique([eventId, studentId])
+  @@index([eventId, status])
+  @@index([studentId])
+  @@index([status, createdAt])
 }
 
 model Payment {
@@ -163,6 +179,8 @@ model Payment {
   amount         Decimal       @db.Decimal(10, 2)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+
+  @@index([status])
 }
 
 model Attendance {
@@ -176,6 +194,8 @@ model Attendance {
   volunteer      User         @relation("VolunteerScans", fields: [volunteerId], references: [id])
   deviceId       String?
   createdAt      DateTime     @default(now())
+
+  @@index([eventId])
 }
 
 model Volunteer {
@@ -189,6 +209,7 @@ model Volunteer {
   createdAt    DateTime @default(now())
 
   @@unique([eventId, userId])
+  @@index([eventId])
 }
 
 model ODLetter {
@@ -204,6 +225,9 @@ model ODLetter {
   filePath          String
   verificationId    String       @unique
   createdAt         DateTime     @default(now())
+
+  @@index([eventId])
+  @@index([studentId])
 }
 
 model AuditLog {
@@ -215,6 +239,10 @@ model AuditLog {
   entityId   String?
   metadata   Json?
   timestamp  DateTime @default(now())
+
+  @@index([timestamp])
+  @@index([userId])
+  @@index([action])
 }
 
 model RefreshToken {
@@ -226,6 +254,10 @@ model RefreshToken {
   replacedByTokenId  String?
   revoked            Boolean  @default(false)
   createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Notification {
@@ -236,6 +268,8 @@ model Notification {
   message   String
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([userId, read])
 }
 
 model EventCoHost {
@@ -247,4 +281,12 @@ model EventCoHost {
   createdAt DateTime @default(now())
 
   @@unique([eventId, userId])
+}
+
+model EventAnnouncement {
+  id        String   @id @default(uuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime @default(now())
 }
