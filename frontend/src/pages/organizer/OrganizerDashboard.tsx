@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
+import { getSocket } from '../../services/socket';
 import { Link } from 'react-router-dom';
 import {
   Box,
@@ -13,22 +14,14 @@ import {
   TableRow,
   Paper,
   Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Alert,
-  CircularProgress,
-  List,
-  ListItem,
-  ListItemText,
   Tooltip,
   IconButton,
-  Divider,
   Grid,
   Card,
   CardContent,
+  Snackbar,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -40,7 +33,17 @@ import {
   AttachMoney as MoneyIcon,
   GetApp as DownloadIcon,
   SupervisorAccount as CoHostIcon,
+  BarChart as AnalyticsIcon,
+  Campaign as CampaignIcon,
 } from '@mui/icons-material';
+
+import { RegistrantsDialog, Registrant } from './components/RegistrantsDialog';
+import { AttendanceDialog, AttendanceRecord } from './components/AttendanceDialog';
+import { VolunteerDialog, Volunteer } from './components/VolunteerDialog';
+import { CoHostDialog, CoHost } from './components/CoHostDialog';
+import { AnalyticsDialog } from './components/AnalyticsDialog';
+import { AnnouncementsDialog, Announcement } from './components/AnnouncementsDialog';
+import { ConfirmationDialog } from '../../components/common/ConfirmationDialog';
 
 interface Event {
   id: string;
@@ -52,32 +55,48 @@ interface Event {
   capacity: number;
   club: { name: string };
   _count: { registrations: number; attendance: number };
-  registrations?: any[];
+  waitlistCount?: number;
+  revenueCollected?: number;
+  revenuePending?: number;
 }
+
 export const OrganizerDashboard: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Dialog State
   const [activeEvent, setActiveEvent] = useState<Event | null>(null);
-  const [registrants, setRegistrants] = useState<any[]>([]);
+  const [registrants, setRegistrants] = useState<Registrant[]>([]);
   const [registrantsOpen, setRegistrantsOpen] = useState(false);
-  const [attendance, setAttendance] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceOpen, setAttendanceOpen] = useState(false);
   const [volunteerOpen, setVolunteerOpen] = useState(false);
-  const [volunteers, setVolunteers] = useState<any[]>([]);
+  const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [coHostOpen, setCoHostOpen] = useState(false);
-  const [coHosts, setCoHosts] = useState<any[]>([]);
-  const [coHostEmail, setCoHostEmail] = useState('');
-  const [coHostError, setCoHostError] = useState<string | null>(null);
-  const [coHostSuccess, setCoHostSuccess] = useState<string | null>(null);
+  const [coHosts, setCoHosts] = useState<CoHost[]>([]);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [processingPaymentIds, setProcessingPaymentIds] = useState<Set<string>>(new Set());
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<any | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-  // Input states
-  const [volunteerEmail, setVolunteerEmail] = useState('');
+  const [announcementsOpen, setAnnouncementsOpen] = useState(false);
+  const [announcementsList, setAnnouncementsList] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+
+  // Confirmation/Revoke states
+  const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
+  const [revokingAttendanceId, setRevokingAttendanceId] = useState<string | null>(null);
+
+  // Alert stats
+  const [alertText, setAlertText] = useState<string | null>(null);
+  const [alertSeverity, setAlertSeverity] = useState<'success' | 'error' | 'info'>('info');
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [volunteerError, setVolunteerError] = useState<string | null>(null);
-  const [volunteerSuccess, setVolunteerSuccess] = useState<string | null>(null);
+
+  const triggerAlert = (message: string, severity: 'success' | 'error' | 'info' = 'info') => {
+    setAlertText(message);
+    setAlertSeverity(severity);
+  };
 
   const fetchEvents = async () => {
     try {
@@ -93,6 +112,46 @@ export const OrganizerDashboard: React.FC = () => {
   useEffect(() => {
     fetchEvents();
   }, []);
+
+  // Live updates: while the registrants or attendance dialog is open for an
+  // event, join its socket room so scans/registrations reflect instantly.
+  useEffect(() => {
+    if (!activeEvent || (!registrantsOpen && !attendanceOpen)) return;
+
+    const eventId = activeEvent.id;
+    const socket = getSocket();
+
+    socket.emit('event:join', eventId);
+
+    const handleAttendanceNew = (record: AttendanceRecord & { eventId: string }) => {
+      if (record.eventId !== eventId) return;
+      setAttendance((prev) => (prev.some((a) => a.id === record.id) ? prev : [record, ...prev]));
+    };
+
+    const refetchRegistrants = async () => {
+      try {
+        const res = await api.get(`/registrations/event/${eventId}`);
+        setRegistrants(res.data.data.registrations);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    const handleRegistrationUpdate = (payload: { eventId: string }) => {
+      if (payload.eventId !== eventId) return;
+      refetchRegistrants();
+      fetchEvents();
+    };
+
+    socket.on('attendance:new', handleAttendanceNew);
+    socket.on('registration:update', handleRegistrationUpdate);
+
+    return () => {
+      socket.off('attendance:new', handleAttendanceNew);
+      socket.off('registration:update', handleRegistrationUpdate);
+      socket.emit('event:leave', eventId);
+    };
+  }, [activeEvent, registrantsOpen, attendanceOpen]);
 
   const handleStatusChange = async (eventId: string, newStatus: string) => {
     setStatusError(null);
@@ -125,6 +184,30 @@ export const OrganizerDashboard: React.FC = () => {
     }
   };
 
+  const handleVerifyPayment = async (regId: string, reference: string, status: 'PAID' | 'FAILED') => {
+    setProcessingPaymentIds(prev => new Set(prev).add(regId));
+    try {
+      await api.post(`/registrations/${regId}/verify-payment`, {
+        reference,
+        status,
+      });
+      if (activeEvent) {
+        const res = await api.get(`/registrations/event/${activeEvent.id}`);
+        setRegistrants(res.data.data.registrations);
+      }
+      fetchEvents();
+      triggerAlert(`Payment reference ${status === 'PAID' ? 'approved' : 'rejected'}.`, 'success');
+    } catch (err: any) {
+      triggerAlert(err.response?.data?.message || 'Failed to verify payment.', 'error');
+    } finally {
+      setProcessingPaymentIds(prev => {
+        const next = new Set(prev);
+        next.delete(regId);
+        return next;
+      });
+    }
+  };
+
   const handleViewAttendance = async (event: Event) => {
     setActiveEvent(event);
     try {
@@ -136,11 +219,64 @@ export const OrganizerDashboard: React.FC = () => {
     }
   };
 
+  const handleRevokeScan = (attendanceId: string) => {
+    setRevokingAttendanceId(attendanceId);
+    setRevokeConfirmOpen(true);
+  };
+
+  const executeRevokeScan = async () => {
+    if (!revokingAttendanceId) return;
+    setRevokeConfirmOpen(false);
+    try {
+      await api.delete(`/attendance/revoke/${revokingAttendanceId}`);
+      triggerAlert("Attendance check-in successfully revoked.", "success");
+      if (activeEvent) {
+        const res = await api.get(`/attendance/event/${activeEvent.id}`);
+        setAttendance(res.data.data.attendance || []);
+      }
+      fetchEvents();
+    } catch (err: any) {
+      triggerAlert(err.response?.data?.message || "Failed to revoke attendance.", "error");
+    } finally {
+      setRevokingAttendanceId(null);
+    }
+  };
+
+  const handleViewAnalytics = async (event: Event) => {
+    setActiveEvent(event);
+    setAnalyticsOpen(true);
+    setAnalyticsLoading(true);
+    setAnalyticsData(null);
+    try {
+      const res = await api.get(`/events/${event.id}/analytics`);
+      setAnalyticsData(res.data.data.analytics);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const handleExportCSV = async (type: 'registrations' | 'attendance') => {
+    try {
+      const response = await api.get(`/events/${activeEvent!.id}/export/${type}`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `event_${activeEvent!.id}_${type}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      triggerAlert(`Successfully exported ${type} CSV.`, 'success');
+    } catch (err: any) {
+      triggerAlert(err.response?.data?.message || 'Failed to export CSV.', 'error');
+    }
+  };
+
   const handleOpenVolunteers = async (event: Event) => {
     setActiveEvent(event);
-    setVolunteerError(null);
-    setVolunteerSuccess(null);
-    setVolunteerEmail('');
     try {
       const res = await api.get(`/events/${event.id}`);
       setVolunteers(res.data.data.event.volunteers || []);
@@ -150,28 +286,48 @@ export const OrganizerDashboard: React.FC = () => {
     }
   };
 
-  const handleAddVolunteer = async () => {
-    if (!volunteerEmail) return;
-    setVolunteerError(null);
-    setVolunteerSuccess(null);
-
+  const handleOpenAnnouncements = async (event: Event) => {
+    setActiveEvent(event);
+    setAnnouncementsOpen(true);
+    setAnnouncementsLoading(true);
     try {
-      await api.post(`/attendance/events/${activeEvent!.id}/volunteers`, { email: volunteerEmail });
-      setVolunteerSuccess('Volunteer successfully assigned.');
-      setVolunteerEmail('');
-      // Reload volunteers
-      const eventDetail = await api.get(`/events/${activeEvent!.id}`);
-      setVolunteers(eventDetail.data.data.event.volunteers || []);
-    } catch (err: any) {
-      setVolunteerError(err.response?.data?.message || err.message || 'Failed to assign volunteer.');
+      const res = await api.get(`/events/${event.id}/announcements`);
+      setAnnouncementsList(res.data.data.announcements || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAnnouncementsLoading(false);
     }
+  };
+
+  const handlePostAnnouncement = async (content: string): Promise<boolean> => {
+    try {
+      const res = await api.post(`/events/${activeEvent!.id}/announcements`, { content });
+      setAnnouncementsList(prev => [res.data.data.announcement, ...prev]);
+      triggerAlert('Announcement successfully posted and sent to all registrants!', 'success');
+      return true;
+    } catch (err: any) {
+      triggerAlert(err.response?.data?.message || 'Failed to post announcement.', 'error');
+      return false;
+    }
+  };
+
+  const handleAddVolunteer = async (email: string): Promise<boolean> => {
+    await api.post(`/attendance/events/${activeEvent!.id}/volunteers`, { email });
+    const eventDetail = await api.get(`/events/${activeEvent!.id}`);
+    setVolunteers(eventDetail.data.data.event.volunteers || []);
+    return true;
+  };
+
+  const handleRemoveVolunteer = async (userId: string): Promise<boolean> => {
+    await api.delete(`/attendance/events/${activeEvent!.id}/volunteers/${userId}`);
+    const res = await api.get(`/events/${activeEvent!.id}`);
+    setVolunteers(res.data.data.event.volunteers || []);
+    return true;
   };
 
   const handleOpenCoHosts = async (event: Event) => {
     setActiveEvent(event);
-    setCoHostError(null);
-    setCoHostSuccess(null);
-    setCoHostEmail('');
     try {
       const res = await api.get(`/events/${event.id}`);
       setCoHosts(res.data.data.event.coHosts || []);
@@ -181,20 +337,11 @@ export const OrganizerDashboard: React.FC = () => {
     }
   };
 
-  const handleAddCoHost = async () => {
-    if (!coHostEmail) return;
-    setCoHostError(null);
-    setCoHostSuccess(null);
-
-    try {
-      await api.post(`/events/${activeEvent!.id}/co-hosts`, { email: coHostEmail });
-      setCoHostSuccess('Co-Host successfully assigned.');
-      setCoHostEmail('');
-      const eventDetail = await api.get(`/events/${activeEvent!.id}`);
-      setCoHosts(eventDetail.data.data.event.coHosts || []);
-    } catch (err: any) {
-      setCoHostError(err.response?.data?.message || err.message || 'Failed to assign co-host.');
-    }
+  const handleAddCoHost = async (email: string): Promise<boolean> => {
+    await api.post(`/events/${activeEvent!.id}/co-hosts`, { email });
+    const eventDetail = await api.get(`/events/${activeEvent!.id}`);
+    setCoHosts(eventDetail.data.data.event.coHosts || []);
+    return true;
   };
 
   const handleDownloadConsolidatedOD = async (eventId: string) => {
@@ -211,9 +358,10 @@ export const OrganizerDashboard: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
+      triggerAlert('Consolidated OD Letter downloaded successfully.', 'success');
     } catch (err: any) {
       console.error('Failed to download consolidated OD letter', err);
-      window.alert('Failed to download consolidated OD letter. Please try again.');
+      triggerAlert('Failed to download consolidated OD letter. Please try again.', 'error');
     } finally {
       setDownloading(null);
     }
@@ -245,25 +393,14 @@ export const OrganizerDashboard: React.FC = () => {
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="50vh">
-        <CircularProgress />
+        <CircularProgress color="primary" />
       </Box>
     );
   }
 
   const totalRegistrations = events.reduce((sum, e) => sum + (e._count?.registrations || 0), 0);
-  const totalRevenue = events.reduce((sum, e) => {
-    const eventRevenue = e.registrations?.reduce((acc: number, r: any) => {
-      if (r.payment && r.payment.status === 'PAID') {
-        return acc + parseFloat(r.payment.amount);
-      }
-      return acc;
-    }, 0) || 0;
-    return sum + eventRevenue;
-  }, 0);
-  const totalWaitlisted = events.reduce((sum, e) => {
-    const eventWaitlisted = e.registrations?.filter((r: any) => r.status === 'WAITLISTED').length || 0;
-    return sum + eventWaitlisted;
-  }, 0);
+  const totalRevenue = events.reduce((sum, e) => sum + (e.revenueCollected || 0), 0);
+  const totalWaitlisted = events.reduce((sum, e) => sum + (e.waitlistCount || 0), 0);
   const totalCheckedIn = events.reduce((sum, e) => sum + (e._count?.attendance || 0), 0);
   const attendanceRate = totalRegistrations > 0 ? Math.round((totalCheckedIn / totalRegistrations) * 100) : 0;
 
@@ -271,7 +408,7 @@ export const OrganizerDashboard: React.FC = () => {
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1, fontFamily: '"Outfit", sans-serif' }}>
+          <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 1 }}>
             Organizer Event Center
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -292,7 +429,7 @@ export const OrganizerDashboard: React.FC = () => {
                 Total Registered
               </Typography>
               <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: '"Outfit", sans-serif' }}>
+                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
                   {totalRegistrations}
                 </Typography>
                 <Box sx={{ color: 'text.primary', p: 1, bgcolor: 'rgba(161, 161, 170, 0.15)', borderRadius: 2, display: 'flex' }}>
@@ -309,8 +446,8 @@ export const OrganizerDashboard: React.FC = () => {
                 Total Revenue
               </Typography>
               <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: '"Outfit", sans-serif' }}>
-                  ${totalRevenue.toFixed(2)}
+                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+                  ₹{totalRevenue.toFixed(2)}
                 </Typography>
                 <Box sx={{ color: 'success.main', p: 1, bgcolor: 'rgba(16, 185, 129, 0.1)', borderRadius: 2, display: 'flex' }}>
                   <MoneyIcon />
@@ -326,7 +463,7 @@ export const OrganizerDashboard: React.FC = () => {
                 Waitlisted Students
               </Typography>
               <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: '"Outfit", sans-serif' }}>
+                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
                   {totalWaitlisted}
                 </Typography>
                 <Box sx={{ color: 'warning.main', p: 1, bgcolor: 'rgba(245, 158, 11, 0.1)', borderRadius: 2, display: 'flex' }}>
@@ -343,7 +480,7 @@ export const OrganizerDashboard: React.FC = () => {
                 Check-in Rate
               </Typography>
               <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
-                <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: '"Outfit", sans-serif' }}>
+                <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
                   {attendanceRate}%
                 </Typography>
                 <Box sx={{ color: 'text.primary', p: 1, bgcolor: 'rgba(161, 161, 170, 0.15)', borderRadius: 2, display: 'flex' }}>
@@ -380,14 +517,9 @@ export const OrganizerDashboard: React.FC = () => {
             <TableBody>
               {events.map((event) => {
                 const eventRegsCount = event._count?.registrations || 0;
-                const eventWaitlistCount = event.registrations?.filter((r: any) => r.status === 'WAITLISTED').length || 0;
+                const eventWaitlistCount = event.waitlistCount || 0;
                 const eventCheckedInCount = event._count?.attendance || 0;
-                const eventRevenue = event.registrations?.reduce((sum: number, r: any) => {
-                  if (r.payment && r.payment.status === 'PAID') {
-                    return sum + parseFloat(r.payment.amount);
-                  }
-                  return sum;
-                }, 0) || 0;
+                const eventRevenue = event.revenueCollected || 0;
                 const attendancePercent = eventRegsCount > 0 ? Math.round((eventCheckedInCount / eventRegsCount) * 100) : 0;
 
                 return (
@@ -405,7 +537,7 @@ export const OrganizerDashboard: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600, color: eventRevenue > 0 ? 'success.main' : 'text.secondary' }}>
-                      {eventRevenue > 0 ? `$${eventRevenue.toFixed(2)}` : 'Free'}
+                      {eventRevenue > 0 ? `₹${eventRevenue.toFixed(2)}` : 'Free'}
                     </TableCell>
                     <TableCell>
                       {eventCheckedInCount} scanned
@@ -418,269 +550,188 @@ export const OrganizerDashboard: React.FC = () => {
                     <TableCell>
                       <Chip label={event.status} color={getStatusColor(event.status) as any} size="small" />
                     </TableCell>
-                  <TableCell sx={{ textAlign: 'right' }}>
-                    <Box display="flex" justifyContent="flex-end" gap={1}>
-                      {event.status === 'DRAFT' && (
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={<SubmitIcon />}
-                          onClick={() => handleSubmitForApproval(event.id)}
-                        >
-                          Submit
-                        </Button>
-                      )}
-
-                      {event.status === 'APPROVED' && (
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          onClick={() => handleStatusChange(event.id, 'ONGOING')}
-                        >
-                          Start
-                        </Button>
-                      )}
-
-                      {event.status === 'ONGOING' && (
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          color="secondary"
-                          onClick={() => handleStatusChange(event.id, 'COMPLETED')}
-                        >
-                          Complete
-                        </Button>
-                      )}
-
-                      {event.status === 'COMPLETED' && (
-                        <Button
-                          variant="contained"
-                          size="small"
-                          color="success"
-                          onClick={() => handleStatusChange(event.id, 'ATTENDANCE_VERIFIED')}
-                        >
-                          Submit Report
-                        </Button>
-                      )}
-
-                      {['APPROVED', 'REGISTRATION_CLOSED', 'ONGOING', 'COMPLETED', 'ATTENDANCE_VERIFIED', 'OD_GENERATED'].includes(event.status) && (
-                        <>
-                          <Tooltip title="View Registrants">
-                            <IconButton color="primary" onClick={() => handleViewRegistrants(event)}>
-                              <PeopleIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="View Checked-In Attendance">
-                            <IconButton color="success" onClick={() => handleViewAttendance(event)}>
-                              <AttendanceIcon />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Assign Volunteers">
-                            <IconButton color="warning" onClick={() => handleOpenVolunteers(event)}>
-                              <VolunteerIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </>
-                      )}
-
-                      <Tooltip title="Manage Co-Hosts">
-                        <IconButton color="info" onClick={() => handleOpenCoHosts(event)}>
-                          <CoHostIcon />
-                        </IconButton>
-                      </Tooltip>
-
-                      {event.status === 'OD_GENERATED' && (
-                        <Tooltip title="Download Consolidated OD">
-                          <IconButton
-                            color="secondary"
-                            onClick={() => handleDownloadConsolidatedOD(event.id)}
-                            disabled={downloading === event.id}
+                    <TableCell sx={{ textAlign: 'right' }}>
+                      <Box display="flex" justifyContent="flex-end" gap={1}>
+                        {event.status === 'DRAFT' && (
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<SubmitIcon />}
+                            onClick={() => handleSubmitForApproval(event.id)}
                           >
-                            {downloading === event.id ? <CircularProgress size={20} /> : <DownloadIcon />}
+                            Submit
+                          </Button>
+                        )}
+
+                        {event.status === 'APPROVED' && (
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={() => handleStatusChange(event.id, 'ONGOING')}
+                          >
+                            Start
+                          </Button>
+                        )}
+
+                        {event.status === 'ONGOING' && (
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            color="secondary"
+                            onClick={() => handleStatusChange(event.id, 'COMPLETED')}
+                          >
+                            Complete
+                          </Button>
+                        )}
+
+                        {event.status === 'COMPLETED' && (
+                          <Button
+                            variant="contained"
+                            size="small"
+                            color="success"
+                            onClick={() => handleStatusChange(event.id, 'ATTENDANCE_VERIFIED')}
+                          >
+                            Submit Report
+                          </Button>
+                        )}
+
+                        {['APPROVED', 'REGISTRATION_CLOSED', 'ONGOING', 'COMPLETED', 'ATTENDANCE_VERIFIED', 'OD_GENERATED'].includes(event.status) && (
+                          <>
+                            <Tooltip title="View Registrants">
+                              <IconButton color="primary" aria-label={`View registrants for ${event.title}`} onClick={() => handleViewRegistrants(event)}>
+                                <PeopleIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="View Checked-In Attendance">
+                              <IconButton color="success" aria-label={`View checked-in attendance for ${event.title}`} onClick={() => handleViewAttendance(event)}>
+                                <AttendanceIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Assign Volunteers">
+                              <IconButton color="warning" aria-label={`Assign volunteers for ${event.title}`} onClick={() => handleOpenVolunteers(event)}>
+                                <VolunteerIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Event Analytics">
+                              <IconButton color="info" aria-label={`View analytics for ${event.title}`} onClick={() => handleViewAnalytics(event)}>
+                                <AnalyticsIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
+
+                        <Tooltip title="Manage Co-Hosts">
+                          <IconButton color="info" aria-label={`Manage co-hosts for ${event.title}`} onClick={() => handleOpenCoHosts(event)}>
+                            <CoHostIcon />
                           </IconButton>
                         </Tooltip>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+
+                        <Tooltip title="Post Announcement">
+                          <IconButton color="secondary" aria-label={`Post announcement for ${event.title}`} onClick={() => handleOpenAnnouncements(event)}>
+                            <CampaignIcon />
+                          </IconButton>
+                        </Tooltip>
+
+                        {event.status === 'OD_GENERATED' && (
+                          <Tooltip title="Download Consolidated OD">
+                            <IconButton
+                              color="secondary"
+                              aria-label={`Download consolidated OD for ${event.title}`}
+                              onClick={() => handleDownloadConsolidatedOD(event.id)}
+                              disabled={downloading === event.id}
+                            >
+                              {downloading === event.id ? <CircularProgress size={20} /> : <DownloadIcon />}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
       )}
 
-      {/* Registrants Dialog */}
-      <Dialog open={registrantsOpen} onClose={() => setRegistrantsOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
-          Registrants List - {activeEvent?.title}
-        </DialogTitle>
-        <DialogContent>
-          {registrants.length === 0 ? (
-            <Typography>No students registered yet.</Typography>
-          ) : (
-            <TableContainer component={Paper}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Roll Number</TableCell>
-                    <TableCell>Department</TableCell>
-                    <TableCell>Email</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {registrants.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell>{r.student.name}</TableCell>
-                      <TableCell>{r.student.rollNumber || 'N/A'}</TableCell>
-                      <TableCell>{r.student.department || 'N/A'}</TableCell>
-                      <TableCell>{r.student.email}</TableCell>
-                      <TableCell>
-                        <Chip label={r.status} size="small" color={getStatusColor(r.status) as any} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRegistrantsOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      {/* Decomposed Dialog Components */}
+      <RegistrantsDialog
+        open={registrantsOpen}
+        onClose={() => setRegistrantsOpen(false)}
+        event={activeEvent}
+        registrants={registrants}
+        onVerifyPayment={handleVerifyPayment}
+        processingPaymentIds={processingPaymentIds}
+      />
 
-      {/* Live Attendance Dialog */}
-      <Dialog open={attendanceOpen} onClose={() => setAttendanceOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
-          Live Scanned Attendance - {activeEvent?.title}
-        </DialogTitle>
-        <DialogContent>
-          {attendance.length === 0 ? (
-            <Typography>No attendance scanned yet.</Typography>
-          ) : (
-            <TableContainer component={Paper}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Student Name</TableCell>
-                    <TableCell>Roll Number</TableCell>
-                    <TableCell>Department</TableCell>
-                    <TableCell>Scanned At</TableCell>
-                    <TableCell>Scanned By</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {attendance.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>{a.registration.student.name}</TableCell>
-                      <TableCell>{a.registration.student.rollNumber || 'N/A'}</TableCell>
-                      <TableCell>{a.registration.student.department || 'N/A'}</TableCell>
-                      <TableCell>{new Date(a.scannedAt).toLocaleTimeString()}</TableCell>
-                      <TableCell>{a.volunteer.name}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAttendanceOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <AttendanceDialog
+        open={attendanceOpen}
+        onClose={() => setAttendanceOpen(false)}
+        event={activeEvent}
+        attendance={attendance}
+        onRevokeAttendance={handleRevokeScan}
+      />
 
-      {/* Volunteer Assignment Dialog */}
-      <Dialog open={volunteerOpen} onClose={() => setVolunteerOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
-          Manage Volunteers - {activeEvent?.title}
-        </DialogTitle>
-        <DialogContent>
-          <Box display="flex" gap={1} mb={3} mt={1}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Volunteer Email"
-              variant="outlined"
-              placeholder="e.g. volunteer@campusflow.com"
-              value={volunteerEmail}
-              onChange={(e) => setVolunteerEmail(e.target.value)}
-            />
-            <Button variant="contained" onClick={handleAddVolunteer}>
-              Assign
-            </Button>
-          </Box>
+      <VolunteerDialog
+        open={volunteerOpen}
+        onClose={() => setVolunteerOpen(false)}
+        event={activeEvent}
+        volunteers={volunteers}
+        onAddVolunteer={handleAddVolunteer}
+        onRemoveVolunteer={handleRemoveVolunteer}
+      />
 
-          {volunteerError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setVolunteerError(null)}>{volunteerError}</Alert>}
-          {volunteerSuccess && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setVolunteerSuccess(null)}>{volunteerSuccess}</Alert>}
+      <CoHostDialog
+        open={coHostOpen}
+        onClose={() => setCoHostOpen(false)}
+        event={activeEvent}
+        coHosts={coHosts}
+        onAddCoHost={handleAddCoHost}
+      />
 
-          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-            Currently Assigned Volunteers
-          </Typography>
-          <Divider sx={{ mb: 1 }} />
-          {volunteers.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No volunteers assigned to this event.</Typography>
-          ) : (
-            <List>
-              {volunteers.map((v) => (
-                <ListItem key={v.id} disablePadding sx={{ py: 0.5 }}>
-                  <ListItemText primary={v.user.name} secondary={v.user.email} />
-                </ListItem>
-              ))}
-            </List>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setVolunteerOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <AnalyticsDialog
+        open={analyticsOpen}
+        onClose={() => setAnalyticsOpen(false)}
+        event={activeEvent}
+        analyticsData={analyticsData}
+        analyticsLoading={analyticsLoading}
+        onExportCSV={handleExportCSV}
+      />
 
-      {/* Co-Host Assignment Dialog */}
-      <Dialog open={coHostOpen} onClose={() => setCoHostOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontFamily: '"Outfit", sans-serif', fontWeight: 'bold' }}>
-          Manage Co-Hosts - {activeEvent?.title}
-        </DialogTitle>
-        <DialogContent>
-          <Box display="flex" gap={1} mb={3} mt={1}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Co-Host Email"
-              variant="outlined"
-              placeholder="e.g. faculty@campusflow.com"
-              value={coHostEmail}
-              onChange={(e) => setCoHostEmail(e.target.value)}
-            />
-            <Button variant="contained" onClick={handleAddCoHost}>
-              Assign
-            </Button>
-          </Box>
+      <AnnouncementsDialog
+        open={announcementsOpen}
+        onClose={() => setAnnouncementsOpen(false)}
+        event={activeEvent}
+        announcementsList={announcementsList}
+        announcementsLoading={announcementsLoading}
+        onPostAnnouncement={handlePostAnnouncement}
+      />
 
-          {coHostError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setCoHostError(null)}>{coHostError}</Alert>}
-          {coHostSuccess && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setCoHostSuccess(null)}>{coHostSuccess}</Alert>}
+      {/* Revoke check-in confirmation */}
+      <ConfirmationDialog
+        open={revokeConfirmOpen}
+        title="Revoke Attendance Scan"
+        message="Are you sure you want to revoke this student's attendance check-in record?"
+        onConfirm={executeRevokeScan}
+        onCancel={() => {
+          setRevokeConfirmOpen(false);
+          setRevokingAttendanceId(null);
+        }}
+        severity="error"
+        confirmText="Revoke"
+      />
 
-          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-            Currently Assigned Co-Hosts
-          </Typography>
-          <Divider sx={{ mb: 1 }} />
-          {coHosts.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No co-hosts assigned to this event.</Typography>
-          ) : (
-            <List>
-              {coHosts.map((ch) => (
-                <ListItem key={ch.id || ch.userId} disablePadding sx={{ py: 0.5 }}>
-                  <ListItemText primary={ch.user.name} secondary={ch.user.email} />
-                </ListItem>
-              ))}
-            </List>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCoHostOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      {/* Premium alert toasts */}
+      <Snackbar
+        open={!!alertText}
+        autoHideDuration={4000}
+        onClose={() => setAlertText(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert onClose={() => setAlertText(null)} severity={alertSeverity} sx={{ width: '100%' }}>
+          {alertText}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

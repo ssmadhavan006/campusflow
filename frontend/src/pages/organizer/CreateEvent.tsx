@@ -71,6 +71,12 @@ export const CreateEvent: React.FC = () => {
     setError(null);
     setLoading(true);
 
+    if (!date) {
+      setError('Please select a valid date and time.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         title,
@@ -88,7 +94,14 @@ export const CreateEvent: React.FC = () => {
       await api.post('/events', payload);
       navigate('/organizer-dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create event. Please check details.');
+      if (Array.isArray(err.response?.data?.errors)) {
+        const errorDetails = err.response.data.errors
+          .map((e: any) => `${e.field}: ${e.message}`)
+          .join(', ');
+        setError(`Validation failed: ${errorDetails}`);
+      } else {
+        setError(err.response?.data?.message || 'Failed to create event. Please check details.');
+      }
     } finally {
       setLoading(false);
     }
@@ -104,7 +117,7 @@ export const CreateEvent: React.FC = () => {
 
   return (
     <Box maxWidth={600} mx="auto">
-      <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 3, fontFamily: '"Outfit", sans-serif' }}>
+      <Typography variant="h4" sx={{ fontWeight: 'bold', mb: 3 }}>
         Create New Event
       </Typography>
 
