@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service';
 import { z } from 'zod';
+import { verifyGoogleIdToken } from '../../utils/googleAuth';
 
 export const RegisterSchema = z.object({
   body: z.object({
@@ -11,7 +12,6 @@ export const RegisterSchema = z.object({
     department: z.string().optional(),
     class: z.string().optional(),
     section: z.string().optional(),
-    role: z.enum(['STUDENT', 'FACULTY', 'HOD', 'ADMIN']).optional(),
   }),
 });
 
@@ -19,6 +19,12 @@ export const LoginSchema = z.object({
   body: z.object({
     email: z.string().email('Invalid email address'),
     password: z.string().min(1, 'Password is required'),
+  }),
+});
+
+export const GoogleLoginSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, 'Google ID token is required'),
   }),
 });
 
@@ -35,7 +41,7 @@ const setRefreshTokenCookie = (res: Response, token: string) => {
 export class AuthController {
   static async register(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, password, name, rollNumber, department, role, class: classVal, section } = req.body;
+      const { email, password, name, rollNumber, department, class: classVal, section } = req.body;
       const user = await AuthService.register({
         email,
         passwordHash: password,
@@ -44,7 +50,6 @@ export class AuthController {
         department,
         class: classVal,
         section,
-        role,
       });
 
       return res.status(201).json({
@@ -75,9 +80,34 @@ export class AuthController {
     }
   }
 
+  static async googleLogin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { token } = req.body;
+      const verified = await verifyGoogleIdToken(token);
+
+      const { user, accessToken, refreshToken, isNewUser } = await AuthService.googleLogin(
+        verified.email,
+        verified.name
+      );
+
+      setRefreshTokenCookie(res, refreshToken);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          user,
+          accessToken,
+          isNewUser,
+        },
+      });
+    } catch (error: any) {
+      return res.status(401).json({ status: 'fail', message: error.message });
+    }
+  }
+
   static async logout(req: Request, res: Response, next: NextFunction) {
     try {
-      const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+      const refreshToken = req.cookies?.refreshToken;
       if (refreshToken) {
         await AuthService.logout(refreshToken);
       }
@@ -100,7 +130,7 @@ export class AuthController {
 
   static async refresh(req: Request, res: Response, next: NextFunction) {
     try {
-      const oldRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+      const oldRefreshToken = req.cookies?.refreshToken;
 
       if (!oldRefreshToken) {
         return res.status(401).json({

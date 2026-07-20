@@ -53,7 +53,7 @@ export class AuthService {
         department: data.department || null,
         class: data.class || null,
         section: data.section || null,
-        role: data.role || Role.STUDENT,
+        role: Role.STUDENT,
       },
     });
 
@@ -193,6 +193,90 @@ export class AuthService {
     return {
       accessToken: newAccessToken,
       refreshToken: newRefreshTokenString,
+    };
+  }
+
+  static async googleLogin(email: string, name: string) {
+    let user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      include: {
+        clubMembers: {
+          select: {
+            clubId: true,
+            role: true
+          }
+        }
+      }
+    });
+
+    let isNewUser = false;
+
+    if (!user) {
+      isNewUser = true;
+      const dummyPassword = crypto.randomUUID();
+      const passwordHash = await bcrypt.hash(dummyPassword, 10);
+
+      user = await prisma.user.create({
+        data: {
+          email: email.toLowerCase(),
+          name,
+          passwordHash,
+          role: env.ADMIN_EMAILS.includes(email.toLowerCase()) ? 'ADMIN' : 'STUDENT',
+          isVerified: true,
+        },
+        include: {
+          clubMembers: {
+            select: {
+              clubId: true,
+              role: true
+            }
+          }
+        }
+      });
+      await logAudit(user.id, 'USER_REGISTER', 'User', user.id);
+    } else {
+      if (user.role === 'STUDENT') {
+        if (!user.rollNumber || !user.department) {
+          isNewUser = true;
+        }
+      } else if (user.role === 'FACULTY' || user.role === 'HOD') {
+        if (!user.department) {
+          isNewUser = true;
+        }
+      }
+    }
+
+    const accessToken = this.generateAccessToken(user.id, user.email, user.role);
+    const refreshTokenString = this.generateRefreshTokenString();
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await prisma.refreshToken.create({
+      data: {
+        token: refreshTokenString,
+        userId: user.id,
+        expiresAt,
+      },
+    });
+
+    await logAudit(user.id, 'USER_LOGIN', 'User', user.id);
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        rollNumber: user.rollNumber,
+        department: user.department,
+        class: user.class,
+        section: user.section,
+        clubMembers: user.clubMembers,
+      },
+      accessToken,
+      refreshToken: refreshTokenString,
+      isNewUser,
     };
   }
 }
